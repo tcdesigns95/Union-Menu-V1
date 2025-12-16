@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Union Dispensary Interactive Menu</title>
+    
+    <!-- Custom Google Fonts for branding -->
+    <link href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Lora:wght@400;700&display=swap" rel="stylesheet">
+    
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        // === Custom Tailwind Configuration for Branding ===
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        cream: '#F8F2E2',
+                        sage: '#808A6F',
+                        forest: '#22352F',
+                        red_sale: '#EF4444',
+                        orange_low: '#F59E0B',
+                        sale_blue: '#3B82F6',
+                    },
+                    fontFamily: {
+                        script: ['Great Vibes', 'cursive'],
+                        serif: ['Lora', 'serif'],
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    
+    <!-- Shared Styles -->
+    <link rel="stylesheet" href="shared.css">
+</head>
+<body class="bg-sage min-h-screen">
+
+    <!-- Main Container -->
+    <div id="app" class="max-w-7xl mx-auto bg-cream shadow-2xl min-h-screen">
+
+        <!-- Header and Navigation -->
+        <header class="sticky top-0 z-30 shadow-lg bg-forest">
+            <div class="p-4 flex justify-between items-center text-cream">
+                <h1 id="main-title" class="text-3xl md:text-4xl font-script text-cream select-none">
+                    Union Dispensary
+                </h1>
+            </div>
+
+            <!-- Category Tabs -->
+            <div id="category-tabs" class="categories-container flex overflow-x-auto border-t border-b border-cream/20 bg-forest/90 sticky top-[68px] md:top-[76px] z-20">
+                <!-- Tabs rendered by JS -->
+            </div>
+        </header>
+
+        <!-- Main Content Area -->
+        <main class="p-4 md:p-6">
+            <!-- Customer Controls (Search/Sort) -->
+            <div id="controls-container" class="bg-cream pt-2 pb-4 z-10">
+                <!-- Controls rendered by JS -->
+            </div>
+
+            <!-- Loading Indicator -->
+            <div class="text-center text-xl text-sage pt-10" id="loading-indicator">Loading menu data...</div>
+
+            <!-- Product List -->
+            <div id="product-list" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6 pt-4">
+                <!-- Product cards rendered by JS -->
+            </div>
+        </main>
+    </div>
+
+    <!-- Item Detail Modal (Customer View) -->
+    <div id="item-detail-modal" class="hidden fixed inset-0 bg-forest bg-opacity-75 flex items-center justify-center z-40 overflow-y-auto p-4">
+        <div class="bg-cream p-6 md:p-8 rounded-xl shadow-2xl w-full max-w-lg text-forest my-8 font-serif">
+            <h3 id="detail-modal-title" class="text-3xl font-bold mb-4 border-b pb-2 border-sage/50"></h3>
+            <div id="detail-modal-body" class="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
+                <!-- Details rendered by JS -->
+            </div>
+            <div class="mt-8 flex justify-end">
+                <button class="bg-sage text-cream p-3 rounded-lg font-bold hover:bg-forest transition btn-brand" onclick="hideItemDetailModal()">Close</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Global Message/Toast Notification -->
+    <div id="message-box" class="hidden fixed top-24 right-4 bg-forest text-cream p-4 rounded-lg shadow-xl opacity-0 transition-all duration-300 z-50 font-serif min-w-[200px]"></div>
+
+    <!-- Firebase Imports -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, query, writeBatch } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global Firebase References
+        window.db = null;
+        window.auth = null;
+        window.userId = null;
+        
+        // Expose Firebase functions globally
+        window.initializeApp = initializeApp;
+        window.getAuth = getAuth;
+        window.signInAnonymously = signInAnonymously;
+        window.signInWithCustomToken = signInWithCustomToken;
+        window.onAuthStateChanged = onAuthStateChanged;
+        window.getFirestore = getFirestore;
+        window.collection = collection;
+        window.onSnapshot = onSnapshot;
+        window.doc = doc;
+        window.setDoc = setDoc;
+        window.deleteDoc = deleteDoc;
+        window.query = query;
+        window.writeBatch = writeBatch;
+    </script>
+    
+    <!-- Shared Configuration -->
+    <script src="shared.js"></script>
+    
+    <!-- Public Application Logic -->
+    <script src="app-public.js"></script>
+    
+    <!-- Firebase Configuration & Initialization -->
+    <script>
+        // Firebase Configuration
+        let firebaseConfig = {};
+        // appId is declared in app-public.js, we'll set it using setAppId()
+
+        // Try to load config from canvas environment first
+        if (typeof __firebase_config !== 'undefined' && __firebase_config) {
+            try {
+                firebaseConfig = JSON.parse(__firebase_config);
+                console.log("Loaded Firebase config from canvas environment.");
+            } catch (e) {
+                console.error("Failed to parse canvas Firebase config.", e);
+            }
+        }
+        
+        // Fallback to hardcoded config
+        if (!firebaseConfig.apiKey) {
+            console.log("Using fallback Firebase config (for GitHub).");
+            firebaseConfig = {
+  apiKey: "AIzaSyCpGjsm0Uawcfqjk_jwS1POpBXlXWGLcGE",
+  authDomain: "union-live-menu.firebaseapp.com",
+  projectId: "union-live-menu",
+  storageBucket: "union-live-menu.firebasestorage.app",
+  messagingSenderId: "724633408861",
+  appId: "1:724633408861:web:82e65fae1db6e95a3404b4",
+  measurementId: "G-E6C1E25NLW"
+            };
+        }
+
+        // Determine appId (don't declare, just determine the value)
+        let determinedAppId = 'union-live-menu';
+        if (typeof __app_id !== 'undefined' && __app_id) {
+            determinedAppId = __app_id;
+            console.log("Using canvas app ID:", determinedAppId);
+        } else if (firebaseConfig.projectId) {
+            determinedAppId = firebaseConfig.projectId;
+            console.log("Using fallback app ID (projectId):", determinedAppId);
+        } else {
+            console.warn("No app ID found. Using default.");
+        }
+
+        // App Initialization
+        document.addEventListener('DOMContentLoaded', async () => {
+            // Set appId in app-public.js scope using the setter function
+            if (window.setAppId) {
+                window.setAppId(determinedAppId);
+            }
+
+            // Initialize Firebase
+            if (Object.keys(firebaseConfig).length > 0 && !firebaseConfig.apiKey.includes("YOUR_")) {
+                try {
+                    const app = window.initializeApp(firebaseConfig);
+                    window.db = window.getFirestore(app);
+                    window.auth = window.getAuth(app);
+                } catch (e) {
+                    console.error("Firebase initialization failed:", e);
+                }
+            }
+
+            // Authenticate and set up listeners
+            if (window.auth) {
+                // Try canvas token first
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    try {
+                        console.log("Attempting sign-in with canvas token...");
+                        await window.signInWithCustomToken(window.auth, __initial_auth_token);
+                    } catch (e) {
+                        console.error("Canvas token sign-in failed:", e);
+                        await window.authenticate();
+                    }
+                } else {
+                    await window.authenticate();
+                }
+
+                // Set up Auth Listener
+                window.onAuthStateChanged(window.auth, (user) => {
+                    if (user) {
+                        console.log("User authenticated:", user.uid);
+                        window.userId = user.uid;
+                        window.initMenu(false);
+                    } else {
+                        console.error("Authentication failed. User is null.");
+                        window.initMenu(true);
+                    }
+                });
+            } else {
+                console.warn("Firebase not initialized, running in mock mode.");
+                window.initMenu(true);
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ADMIN - Union Menu</title>
+    
+    <!-- Custom Google Fonts for branding -->
+    <link href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Lora:wght@400;700&display=swap" rel="stylesheet">
+    
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        // === Custom Tailwind Configuration for Branding ===
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        cream: '#F8F2E2',
+                        sage: '#808A6F',
+                        forest: '#22352F',
+                        red_sale: '#EF4444',
+                        orange_low: '#F59E0B',
+                        sale_blue: '#3B82F6',
+                    },
+                    fontFamily: {
+                        script: ['Great Vibes', 'cursive'],
+                        serif: ['Lora', 'serif'],
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    
+    <!-- Shared Styles -->
+    <link rel="stylesheet" href="shared.css">
+</head>
+<body class="bg-sage min-h-screen">
+
+    <!-- Main Container -->
+    <div id="app" class="max-w-7xl mx-auto bg-cream shadow-2xl min-h-screen">
+
+        <!-- Header and Navigation -->
+        <header class="sticky top-0 z-30 shadow-lg bg-forest">
+            <div class="p-4 flex justify-between items-center text-cream">
+                <h1 id="main-title" class="text-3xl md:text-4xl font-script text-cream select-none">
+                    Union Dispensary
+                </h1>
+                
+                <!-- Admin Logout Button -->
+                <button id="logout-button" class="admin-controls bg-red_sale text-white p-2 px-3 rounded-lg text-xs font-bold btn-brand" onclick="handleLogout()">
+                    Logout
+                </button>
+            </div>
+
+            <!-- Category Tabs -->
+            <div id="category-tabs" class="categories-container flex overflow-x-auto border-t border-b border-cream/20 bg-forest/90 sticky top-[68px] md:top-[76px] z-20">
+                <!-- Tabs rendered by JS -->
+            </div>
+        </header>
+
+        <!-- Main Content Area -->
+        <main class="p-4 md:p-6">
+            <!-- Customer Controls (Search/Sort) -->
+            <div id="controls-container" class="bg-cream pt-2 pb-4 z-10">
+                <!-- Controls rendered by JS -->
+            </div>
+
+            <!-- Add Item Button (Admin Only) -->
+            <div id="add-item-container" class="admin-controls mb-4 p-4 bg-sage/10 rounded-xl border border-sage/50">
+                <button id="add-item-button" class="bg-forest text-cream w-full p-3 rounded-lg font-bold hover:bg-forest/80 transition btn-brand text-lg" onclick="handleAddItemClick()">
+                    + Add New Item to <span id="add-item-category-label">...</span>
+                </button>
+            </div>
+
+            <!-- Loading Indicator -->
+            <div class="text-center text-xl text-sage pt-10" id="loading-indicator">Authenticating...</div>
+
+            <!-- Product List -->
+            <div id="product-list" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6 pt-4">
+                <!-- Product cards rendered by JS -->
+            </div>
+        </main>
+    </div>
+
+    <!-- === MODALS === -->
+
+    <!-- Admin Login Modal -->
+    <div id="login-modal" class="modal fixed inset-0 bg-forest bg-opacity-90 flex items-center justify-center z-50 p-4">
+        <div class="bg-cream p-8 rounded-xl shadow-2xl w-full max-w-md">
+            <h3 class="text-3xl font-bold text-forest mb-6 text-center">Admin Login</h3>
+            <p id="login-error" class="text-center text-red_sale mb-4 font-semibold"></p>
+            <form id="login-form">
+                <div class="mb-4">
+                    <label for="email" class="block text-sm font-bold text-forest mb-2">Username</label>
+                    <input type="email" id="email" required class="w-full p-2 border-2 border-sage rounded-xl bg-white text-forest focus:outline-none focus:ring-2 focus:ring-sage font-serif" value="admin">
+                </div>
+                <div class="mb-6">
+                    <label for="password" class="block text-sm font-bold text-forest mb-2">Password</label>
+                    <input type="password" id="password" required class="w-full p-2 border-2 border-sage rounded-xl bg-white text-forest focus:outline-none focus:ring-2 focus:ring-sage font-serif" value="password">
+                </div>
+                <button type="submit" class="bg-sage text-cream w-full p-3 rounded-lg font-bold hover:bg-forest transition btn-brand text-lg">
+                    Login
+                </button>
+            </form>
+        </div>
+    </div>
+    
+    <!-- Item Detail Modal (Customer View - not used in admin but kept for consistency) -->
+    <div id="item-detail-modal" class="modal hidden fixed inset-0 bg-forest bg-opacity-75 items-center justify-center z-40 overflow-y-auto p-4">
+        <div class="bg-cream p-6 md:p-8 rounded-xl shadow-2xl w-full max-w-lg text-forest my-8 font-serif">
+            <h3 id="detail-modal-title" class="text-3xl font-bold mb-4 border-b pb-2 border-sage/50"></h3>
+            <div id="detail-modal-body" class="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
+                <!-- Details rendered by JS -->
+            </div>
+            <div class="mt-8 flex justify-end">
+                <button class="bg-sage text-cream p-3 rounded-lg font-bold hover:bg-forest transition btn-brand" onclick="hideItemDetailModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Admin Edit/Add Modal -->
+    <div id="admin-modal" class="modal hidden fixed inset-0 bg-forest bg-opacity-75 items-center justify-center z-40 overflow-y-auto p-4">
+        <div class="bg-cream p-6 md:p-8 rounded-xl shadow-2xl w-full max-w-xl text-forest my-8 font-serif">
+            <h3 id="admin-modal-title" class="text-3xl font-bold mb-6 border-b pb-3 border-sage/50">Edit Item</h3>
+            <form id="admin-form" class="modal-content-area space-y-3 max-h-[70vh] overflow-y-auto pr-2">
+                <input type="hidden" id="edit-item-id">
+                <div id="admin-form-fields" class="space-y-3">
+                    <!-- Fields rendered by JS -->
+                </div>
+                
+                <!-- Admin-Only Status Fields -->
+                <fieldset class="border-2 border-sage/50 p-3 rounded-xl mt-6">
+                    <legend class="text-lg font-bold px-2 text-forest">Admin Status</legend>
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <label class="flex items-center space-x-2 p-2 bg-sage/10 rounded-lg">
+                            <input type="checkbox" id="isFeatured" class="h-5 w-5 text-red_sale rounded focus:ring-red_sale">
+                            <span class="font-semibold text-sm">Featured ⭐</span>
+                        </label>
+                         <label class="flex items-center space-x-2 p-2 bg-sage/10 rounded-lg">
+                            <input type="checkbox" id="isOnSale" class="h-5 w-5 text-sale_blue rounded focus:ring-sale_blue">
+                            <span class="font-semibold text-sm">On Sale 🏷️</span>
+                        </label>
+                        <label class="flex items-center space-x-2 p-2 bg-sage/10 rounded-lg">
+                            <input type="checkbox" id="isLowStock" class="h-5 w-5 text-orange_low rounded focus:ring-orange_low">
+                            <span class="font-semibold text-sm">Low Stock ⚠️</span>
+                        </label>
+                        <label class="flex items-center space-x-2 p-2 bg-sage/10 rounded-lg">
+                            <input type="checkbox" id="isSoldOut" class="h-5 w-5 text-gray-600 rounded focus:ring-gray-600">
+                            <span class="font-semibold text-sm">Sold Out ❌</span>
+                        </label>
+                    </div>
+                </fieldset>
+                
+                <!-- Staff Notes Field -->
+                <div class="pt-4">
+                    <label for="staffNotes" class="block text-sm font-bold text-forest mb-1">Staff Notes (Internal Use Only)</label>
+                    <textarea id="staffNotes" rows="2" class="w-full p-2 border-2 border-sage/50 rounded-xl bg-white text-forest focus:outline-none focus:ring-2 focus:ring-sage font-serif"></textarea>
+                </div>
+
+            </form>
+            <div class="mt-8 flex justify-between">
+                <button class="bg-gray-400 text-black p-3 rounded-lg font-bold hover:bg-gray-500 transition btn-brand" onclick="hideAdminModal()">Cancel</button>
+                <button class="bg-forest text-cream p-3 px-6 rounded-lg font-bold hover:bg-sage transition btn-brand text-lg" onclick="saveItem()">Save Changes</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Category Select Modal -->
+    <div id="category-select-modal" class="modal hidden fixed inset-0 bg-forest bg-opacity-90 items-center justify-center z-50 p-4">
+        <div class="bg-cream p-8 rounded-xl shadow-2xl w-full max-w-md">
+            <h3 class="text-3xl font-bold text-forest mb-6 text-center">Select Category</h3>
+            <p class="text-center text-forest/80 mb-6">Which type of product are you adding?</p>
+            
+            <div id="category-select-buttons" class="grid grid-cols-2 gap-3">
+                <!-- Category buttons rendered by JS -->
+            </div>
+
+            <div class="mt-8 flex justify-center">
+                <button class="bg-gray-400 text-black p-3 rounded-lg font-bold hover:bg-gray-500 transition btn-brand" onclick="hideCategorySelectModal()">Cancel</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Global Message/Toast Notification -->
+    <div id="message-box" class="hidden fixed top-24 right-4 bg-forest text-cream p-4 rounded-lg shadow-xl opacity-0 transition-all duration-300 z-50 font-serif min-w-[200px]"></div>
+
+    <!-- Firebase Imports -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { 
+            getAuth, 
+            signInWithEmailAndPassword, 
+            signOut, 
+            onAuthStateChanged,
+            signInWithCustomToken
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, query, writeBatch } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global Firebase References
+        window.db = null;
+        window.auth = null;
+        window.userId = null;
+        
+        // Expose Firebase functions globally
+        window.initializeApp = initializeApp;
+        window.getAuth = getAuth;
+        window.signInWithEmailAndPassword = signInWithEmailAndPassword;
+        window.signInWithCustomToken = signInWithCustomToken;
+        window.signOut = signOut;
+        window.onAuthStateChanged = onAuthStateChanged;
+        window.getFirestore = getFirestore;
+        window.collection = collection;
+        window.onSnapshot = onSnapshot;
+        window.doc = doc;
+        window.setDoc = setDoc;
+        window.deleteDoc = deleteDoc;
+        window.query = query;
+        window.writeBatch = writeBatch;
+    </script>
+    
+    <!-- Shared Configuration -->
+    <script src="shared.js"></script>
+    
+    <!-- Admin Application Logic -->
+    <script src="app-admin.js"></script>
+    
+    <!-- Firebase Configuration & Initialization -->
+    <script>
+        // Firebase Configuration
+        let firebaseConfig = {};
+        // appId is declared in app-admin.js, we'll set it using setAppId()
+
+        // Try to load config from canvas environment first
+        if (typeof __firebase_config !== 'undefined' && __firebase_config) {
+            try {
+                firebaseConfig = JSON.parse(__firebase_config);
+                console.log("Loaded Firebase config from canvas environment.");
+            } catch (e) {
+                console.error("Failed to parse canvas Firebase config.", e);
+            }
+        }
+        
+        // Fallback to hardcoded config
+        if (!firebaseConfig.apiKey) {
+            console.log("Using fallback Firebase config (for GitHub).");
+            firebaseConfig = {
+                apiKey: "AIzaSyCpGjsm0Uawcfqjk_jwS1POpBXlXWGLcGE",
+                authDomain: "union-live-menu.firebaseapp.com",
+                projectId: "union-live-menu",
+                storageBucket: "union-live-menu.firebasestorage.app",
+                messagingSenderId: "724633408861",
+                appId: "1:724633408861:web:82e65fae1db6e95a3404b4",
+                measurementId: "G-E6C1E25NLW"
+            };
+        }
+
+        // Determine appId (don't declare, just determine the value)
+        let determinedAppId = 'union-live-menu';
+        if (typeof __app_id !== 'undefined' && __app_id) {
+            determinedAppId = __app_id;
+            console.log("Using canvas app ID:", determinedAppId);
+        } else if (firebaseConfig.projectId) {
+            determinedAppId = firebaseConfig.projectId;
+            console.log("Using fallback app ID (projectId):", determinedAppId);
+        } else {
+            console.warn("No app ID found. Using default.");
+        }
+
+        // App Initialization
+        document.addEventListener('DOMContentLoaded', async () => {
+            // Set appId in app-admin.js scope using the setter function
+            if (window.setAppId) {
+                window.setAppId(determinedAppId);
+            }
+
+            // Set up login form listener
+            const loginForm = document.getElementById('login-form');
+            if (loginForm) {
+                loginForm.addEventListener('submit', (event) => {
+                    event.preventDefault();
+                    const email = document.getElementById('email').value;
+                    const password = document.getElementById('password').value;
+                    const errorP = document.getElementById('login-error');
+                    errorP.textContent = '';
+                    
+                    if (!window.auth) {
+                        console.error("Login Error: window.auth is not initialized. Check firebaseConfig.");
+                        errorP.textContent = 'Error: Firebase config is missing or invalid.';
+                        return;
+                    }
+                    
+                    window.signInWithEmailAndPassword(window.auth, email, password)
+                        .then((userCredential) => {
+                            // Success, handled by onAuthStateChanged
+                        })
+                        .catch((error) => {
+                            console.error("Login Error:", error);
+                            errorP.textContent = 'Login Failed. Check username or password.';
+                        });
+                });
+            }
+
+            // Initialize Firebase
+            if (Object.keys(firebaseConfig).length > 0 && !firebaseConfig.apiKey.includes("YOUR_")) {
+                try {
+                    const app = window.initializeApp(firebaseConfig);
+                    window.db = window.getFirestore(app);
+                    window.auth = window.getAuth(app);
+                } catch (e) {
+                    console.error("Firebase initialization failed:", e);
+                }
+            }
+
+            // Set up Auth Listener
+            if (window.auth) {
+                // Try canvas token first
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    try {
+                        console.log("Attempting sign-in with canvas token...");
+                        await window.signInWithCustomToken(window.auth, __initial_auth_token);
+                    } catch (e) {
+                        console.error("Canvas token sign-in failed:", e);
+                    }
+                }
+
+                window.onAuthStateChanged(window.auth, (user) => {
+                    if (user) {
+                        window.userId = user.uid;
+                        window.toggleAdminUI(true);
+                        window.initMenu(false);
+                    } else {
+                        window.userId = null;
+                        window.toggleAdminUI(false);
+                    }
+                });
+            } else {
+                console.warn("Firebase not initialized. Check config.");
+                const loadingIndicator = document.getElementById('loading-indicator');
+                if (loadingIndicator) {
+                    loadingIndicator.textContent = 'Firebase Config Missing. Cannot load admin panel.';
+                    const errorBox = document.createElement('div');
+                    errorBox.className = "p-4 bg-red-100 border-red-400 text-red-700 rounded-lg max-w-md mx-auto mt-10 font-serif";
+                    errorBox.innerHTML = `<h4 class="font-bold">Firebase Error</h4><p>The <code>firebaseConfig</code> object is missing or invalid. Please add your keys to connect to the database.</p>`;
+                    document.body.prepend(errorBox);
+                    const loginModal = document.getElementById('login-modal');
+                    if (loginModal) loginModal.style.display = 'none';
+                }
+            }
+        });
+    </script>
+</body>
+</html>
