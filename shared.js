@@ -19,6 +19,15 @@ const SHARED_CONFIG = {
     },
 
     // Category field definitions
+    // Each category has an array of field objects that define:
+    // - id: Unique field identifier (matches Firestore document property)
+    // - label: Display label shown in forms and product cards
+    // - type: Input type ('text', 'textarea', or 'select')
+    // - required: Boolean indicating if field must be filled
+    // - sortable: Boolean to include field in sort options
+    // - priceField: Boolean to auto-format value as currency ($)
+    // - options: Array of options for select dropdowns
+    // - placeholder: Example text shown in empty input fields
     categoryFields: {
         'Flower': [
             { id: 'name', label: 'Strain Name / THC%', type: 'text', required: true, sortable: true },
@@ -29,6 +38,8 @@ const SHARED_CONFIG = {
             { id: 'price_1g', label: 'Price (1 gram)', type: 'text', required: true, placeholder: '$9 - $12', priceField: true, sortable: true }, 
             { id: 'price_35g', label: 'Price (3.5g / Eighth)', type: 'text', required: true, placeholder: '$25 - $40', priceField: true, sortable: true },
             { id: 'price_7g', label: 'Price (7g / Quarter)', type: 'text', required: false, placeholder: '$50 - $80', priceField: true, sortable: true },
+            { id: 'flowHubId', label: 'FlowHub Product ID (for sync)', type: 'text', required: false, placeholder: 'Optional - for POS integration' },
+            { id: 'metrcLabel', label: 'Metrc Package Label', type: 'text', required: false, placeholder: 'Optional - for compliance tracking' },
         ],
         'Concentrates': [
             { id: 'name', label: 'Product Name (e.g., Live Resin)', type: 'text', required: true, sortable: true },
@@ -98,12 +109,20 @@ const SHARED_CONFIG = {
     }
 };
 
-// Get all categories and navigation order
+// Get all categories from field definitions
 const allCategories = Object.keys(SHARED_CONFIG.categoryFields);
+
+// Navigation order: 'All Products' and 'Specials' first, then all other categories
+// This controls the order of category tabs in the UI
 const navCategories = ['All Products', 'Specials', ...allCategories.filter(c => c !== 'Specials')];
 
 // === Utility Functions ===
 
+/**
+ * Display a toast notification message to the user
+ * @param {string} text - Message text to display
+ * @param {boolean} isError - If true, shows message with red background (error style)
+ */
 function showMessage(text, isError = false) {
     let messageBox = document.getElementById('message-box');
     if (!messageBox) return; 
@@ -120,12 +139,25 @@ function showMessage(text, isError = false) {
     }, 3000);
 }
 
+/**
+ * Extract numeric price value from price string for sorting
+ * Handles formats like "$25", "$25.50", "$25 - $30" (takes first number)
+ * @param {string} priceStr - Price string (e.g., "$25.50" or "$25 - $30")
+ * @returns {number} Numeric price value, or Infinity if no number found
+ */
 function extractPrice(priceStr) {
     const match = priceStr ? String(priceStr).match(/(\d+\.?\d*)/) : null;
     return match ? parseFloat(match[1]) : Infinity;
 }
 
-// Get collection path (shared by both files)
+/**
+ * Generate Firestore collection path for a product category
+ * Path format: artifacts/{appId}/public/data/{category}
+ * Example: artifacts/union-live-menu/public/data/Flower
+ * @param {string} category - Category name (e.g., 'Flower', 'Edibles')
+ * @param {string} appId - Application ID (default: 'union-live-menu')
+ * @returns {string} Full Firestore collection path
+ */
 function getCollectionPath(category, appId) {
     return `artifacts/${appId}/public/data/${category}`;
 }

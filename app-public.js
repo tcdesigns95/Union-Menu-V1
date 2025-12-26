@@ -1,28 +1,43 @@
 // =======================================================================
 // PUBLIC MENU APPLICATION (index.html)
+// Customer-facing menu interface for browsing and viewing products
 // =======================================================================
 
-// App State
-let inventory = {}; 
-let currentCategory = 'Flower';
-let currentSearchQuery = '';
-let currentTypeFilter = 'All'; 
+// === Application State ===
+// These variables track the current filter, sort, and view state
+let inventory = {}; // Cached product data organized by category: { 'Flower': { itemId: itemData, ... }, ... }
+let currentCategory = 'Flower'; // Currently selected category tab
+let currentSearchQuery = ''; // Current search text input
+let currentTypeFilter = 'All'; // Filter by Indica/Sativa/Hybrid 
 let currentSortBy = 'name'; 
 let currentSortDirection = 'asc'; 
-let currentFormatFilter = 'All'; 
-let currentDeviceFilter = 'All'; 
-let currentVolumeFilter = 'All';
-let currentRatioFilter = 'All'; 
-let currentPackagingFilter = 'All'; 
-let currentInfusionFilter = 'All'; 
-let currentFormFilter = 'All'; 
-let currentWeightFilter = 'All'; 
-let currentCannabinoidFilter = 'All'; 
-let currentEdibleFormFilter = 'All';
-// appId will be set from index.html initialization
-let appId = 'union-live-menu';
+let currentFormatFilter = 'All'; // For Concentrates/Cartridges format filtering
+let currentDeviceFilter = 'All'; // For Cartridges device type (510/AIO)
+let currentVolumeFilter = 'All'; // For Cartridges volume filtering
+let currentRatioFilter = 'All'; // For Tinctures ratio filtering
+let currentPackagingFilter = 'All'; // For Pre-Rolls packaging filtering
+let currentInfusionFilter = 'All'; // For Pre-Rolls infusion filtering
+let currentFormFilter = 'All'; // For Topicals form filtering
+let currentWeightFilter = 'All'; // For Pre-Rolls weight filtering
+let currentCannabinoidFilter = 'All'; // For Edibles cannabinoid filtering
+let currentEdibleFormFilter = 'All'; // For Edibles form filtering (gummies, etc.)
 
-// Function to update appId
+// Filter state persistence - stores filter state per category
+let categoryFilterState = {}; // { 'Flower': { typeFilter: 'Indica', sortBy: 'name', ... }, ... }
+
+// Infinite scroll state
+let itemsPerPage = 24; // Number of items to display initially (increased for tablet)
+let currentPage = 1;
+let allFilteredItems = []; // Store filtered/sorted items for pagination
+
+// appId will be set from index.html initialization script
+let appId = 'union-live-menu'; // Firebase app/project ID for collection paths
+
+/**
+ * Update the Firebase app ID (called from index.html initialization)
+ * This determines which Firestore collections to read from
+ * @param {string} newAppId - New application ID
+ */
 function setAppId(newAppId) {
     appId = newAppId;
 }
@@ -34,6 +49,11 @@ const categoryFields = SHARED_CONFIG.categoryFields;
 
 // === Firebase Data Functions ===
 
+/**
+ * Set up real-time Firestore listeners for all product categories
+ * Automatically updates the UI when data changes in the database
+ * Each category gets its own listener that updates the inventory cache
+ */
 function setupDataListeners() {
     allCategories.forEach(category => {
         const path = getCollectionPath(category, appId);
@@ -71,12 +91,20 @@ function setupDataListeners() {
     });
 }
 
-// === UI Functions ===
+// === UI Modal Functions ===
 
+/**
+ * Hide the product detail modal overlay
+ */
 function hideItemDetailModal() { 
     document.getElementById('item-detail-modal').classList.add('hidden'); 
 }
 
+/**
+ * Display detailed information for a product in a modal overlay
+ * Shows all product fields, pricing options, and descriptions
+ * @param {string} itemId - Unique product ID to display
+ */
 function showItemDetailModal(itemId) {
     let item = null;
     for (const cat of allCategories) {
@@ -135,25 +163,82 @@ function showItemDetailModal(itemId) {
     document.getElementById('item-detail-modal').classList.remove('hidden');
 }
 
+/**
+ * Save current filter state for the current category
+ */
+function saveFilterState() {
+    categoryFilterState[currentCategory] = {
+        searchQuery: currentSearchQuery,
+        typeFilter: currentTypeFilter,
+        sortBy: currentSortBy,
+        sortDirection: currentSortDirection,
+        formatFilter: currentFormatFilter,
+        deviceFilter: currentDeviceFilter,
+        volumeFilter: currentVolumeFilter,
+        ratioFilter: currentRatioFilter,
+        packagingFilter: currentPackagingFilter,
+        infusionFilter: currentInfusionFilter,
+        formFilter: currentFormFilter,
+        weightFilter: currentWeightFilter,
+        cannabinoidFilter: currentCannabinoidFilter,
+        edibleFormFilter: currentEdibleFormFilter
+    };
+}
+
+/**
+ * Restore filter state for a category, or use defaults
+ */
+function restoreFilterState(category) {
+    const savedState = categoryFilterState[category];
+    if (savedState) {
+        currentSearchQuery = savedState.searchQuery || '';
+        currentTypeFilter = savedState.typeFilter || 'All';
+        currentSortBy = savedState.sortBy || 'name';
+        currentSortDirection = savedState.sortDirection || 'asc';
+        currentFormatFilter = savedState.formatFilter || 'All';
+        currentDeviceFilter = savedState.deviceFilter || 'All';
+        currentVolumeFilter = savedState.volumeFilter || 'All';
+        currentRatioFilter = savedState.ratioFilter || 'All';
+        currentPackagingFilter = savedState.packagingFilter || 'All';
+        currentInfusionFilter = savedState.infusionFilter || 'All';
+        currentFormFilter = savedState.formFilter || 'All';
+        currentWeightFilter = savedState.weightFilter || 'All';
+        currentCannabinoidFilter = savedState.cannabinoidFilter || 'All';
+        currentEdibleFormFilter = savedState.edibleFormFilter || 'All';
+    } else {
+        // Default values for new category
+        currentSearchQuery = '';
+        currentTypeFilter = 'All';
+        currentSortBy = 'name';
+        currentSortDirection = 'asc';
+        currentFormatFilter = 'All';
+        currentDeviceFilter = 'All';
+        currentVolumeFilter = 'All';
+        currentRatioFilter = 'All';
+        currentPackagingFilter = 'All';
+        currentInfusionFilter = 'All';
+        currentFormFilter = 'All';
+        currentWeightFilter = 'All';
+        currentCannabinoidFilter = 'All';
+        currentEdibleFormFilter = 'All';
+    }
+}
+
+/**
+ * Switch to a different product category and restore filters for that category
+ * @param {string} category - Category name to switch to
+ */
 function changeCategory(category) {
+    // Save current category's filter state before switching
+    saveFilterState();
+    
     currentCategory = category;
     
-    const supportsTypeFilter = ['All Products', 'Flower', 'Cartridges', 'Concentrates', 'Pre-Rolls', 'Edibles'].includes(category);
-    if (!supportsTypeFilter) { 
-        currentTypeFilter = 'All'; 
-    }
+    // Restore filter state for the new category
+    restoreFilterState(category);
     
-    // Reset ALL specific filters when changing categories
-    currentFormatFilter = 'All';
-    currentDeviceFilter = 'All';
-    currentVolumeFilter = 'All';
-    currentRatioFilter = 'All';
-    currentPackagingFilter = 'All';
-    currentInfusionFilter = 'All';
-    currentFormFilter = 'All';
-    currentWeightFilter = 'All';
-    currentCannabinoidFilter = 'All'; 
-    currentEdibleFormFilter = 'All';
+    // Reset page for infinite scroll
+    currentPage = 1;
 
     renderCategories();
     renderControls();
@@ -161,92 +246,131 @@ function changeCategory(category) {
 }
 
 // === Search, Filter & Sort Functions ===
+// These functions update filter state and re-render the product list
+
+/**
+ * Handle search input changes - filters products by search query
+ * @param {Event} event - Input event from search field
+ */
 function handleSearch(event) { 
     currentSearchQuery = event.target.value.toLowerCase().trim(); 
+    saveFilterState(); // Save filter state when search changes
+    currentPage = 1; // Reset to first page
     renderControls(); 
     renderMenu(); 
 }
 
 function handleTypeFilter(type) { 
     currentTypeFilter = type; 
+    saveFilterState();
+    currentPage = 1;
     renderControls(); 
     renderMenu(); 
 }
 
 function handleFormatFilter(format) { 
     currentFormatFilter = format; 
+    saveFilterState();
+    currentPage = 1;
     renderControls(); 
     renderMenu(); 
 }
 
 function handleDeviceFilter(device) { 
     currentDeviceFilter = device; 
+    saveFilterState();
+    currentPage = 1;
     renderControls(); 
     renderMenu(); 
 }
 
 function handleVolumeFilter(volume) { 
     currentVolumeFilter = volume; 
+    saveFilterState();
+    currentPage = 1;
     renderControls(); 
     renderMenu(); 
 }
 
 function handleRatioFilter(ratio) { 
     currentRatioFilter = ratio; 
+    saveFilterState();
+    currentPage = 1;
     renderControls(); 
     renderMenu(); 
 }
 
 function handleFormFilter(form) { 
     currentFormFilter = form; 
+    saveFilterState();
+    currentPage = 1;
     renderControls(); 
     renderMenu(); 
 }
 
 function handleWeightFilter(weight) { 
     currentWeightFilter = weight; 
+    saveFilterState();
+    currentPage = 1;
     renderControls(); 
     renderMenu(); 
 }
 
 function handlePackagingFilter(packaging) { 
     currentPackagingFilter = packaging; 
+    saveFilterState();
+    currentPage = 1;
     renderControls(); 
     renderMenu(); 
 }
 
 function handleInfusionFilter(infused) { 
     currentInfusionFilter = infused; 
+    saveFilterState();
+    currentPage = 1;
     renderControls(); 
     renderMenu(); 
 }
 
 function handleCannabinoidFilter(cannabinoid) { 
     currentCannabinoidFilter = cannabinoid; 
+    saveFilterState();
+    currentPage = 1;
     renderControls(); 
     renderMenu(); 
 }
 
 function handleEdibleFormFilter(form) { 
     currentEdibleFormFilter = form; 
+    saveFilterState();
+    currentPage = 1;
     renderControls(); 
     renderMenu(); 
 }
 
 function handleSortChange(event) { 
     currentSortBy = event.target.value; 
+    saveFilterState();
+    currentPage = 1;
     renderControls(); 
     renderMenu(); 
 }
 
 function handleSortDirection(direction) { 
     currentSortDirection = direction; 
+    saveFilterState();
+    currentPage = 1;
     renderControls(); 
     renderMenu(); 
 }
 
 // === Render Functions ===
+// These functions build and update the UI based on current state
 
+/**
+ * Render the category navigation tabs at the top of the page
+ * Highlights the active category and makes tabs clickable
+ */
 function renderCategories() {
     const tabsContainer = document.getElementById('category-tabs');
     tabsContainer.innerHTML = '';
@@ -263,7 +387,11 @@ function renderCategories() {
     });
 }
 
-// This is a large function - keeping it here but could be split further
+/**
+ * Render the search, filter, and sort controls based on current category
+ * Dynamically shows category-specific filters (e.g., volume for cartridges, weight for pre-rolls)
+ * This is a large function that generates HTML for all filter options
+ */
 function renderControls() {
     const controlsContainer = document.getElementById('controls-container');
     const searchPlaceholder = currentCategory === 'All Products' ? 'Search all products...' : `Search in ${currentCategory}...`;
@@ -501,6 +629,12 @@ function renderControls() {
     }
 }
 
+/**
+ * Main rendering function - filters, sorts, and displays products
+ * Applies all active filters (search, category, type, format, etc.)
+ * Sorts products by selected criteria (featured first, then by sort option)
+ * Handles special cases: 'All Products' shows everything, 'Specials' shows featured/on-sale items
+ */
 function renderMenu() {
     const productList = document.getElementById('product-list');
     let itemsToDisplay = [];
@@ -618,6 +752,13 @@ function renderMenu() {
         return currentSortDirection === 'asc' ? comparison : -comparison;
     });
 
+    // Store filtered items for infinite scroll
+    allFilteredItems = itemsToDisplay;
+    
+    // Calculate items to display for current page
+    const itemsToShow = allFilteredItems.slice(0, currentPage * itemsPerPage);
+    const hasMore = allFilteredItems.length > itemsToShow.length;
+    
     // Render
     if (itemsToDisplay.length === 0) {
         let message = `No items available in the ${currentCategory} category.`;
@@ -630,10 +771,69 @@ function renderMenu() {
         }
         productList.innerHTML = `<div class="col-span-full text-center text-xl text-sage pt-10 font-serif">${message}</div>`;
     } else {
-        productList.innerHTML = itemsToDisplay.map(renderProductCard).join('');
+        productList.innerHTML = itemsToShow.map(renderProductCard).join('');
+        
+        // Add "Load More" button or infinite scroll trigger
+        if (hasMore) {
+            productList.innerHTML += `
+                <div id="load-more-container" class="col-span-full flex justify-center py-6">
+                    <button id="load-more-btn" onclick="loadMoreItems()" class="bg-sage text-cream px-6 py-3 rounded-lg font-bold hover:bg-forest transition btn-brand">
+                        Load More (${allFilteredItems.length - itemsToShow.length} remaining)
+                    </button>
+                </div>
+            `;
+        }
+    }
+    
+    // Remove old scroll listener and add new one
+    removeScrollListener();
+    if (hasMore) {
+        setupInfiniteScroll();
     }
 }
 
+/**
+ * Load more items (infinite scroll)
+ */
+function loadMoreItems() {
+    currentPage++;
+    renderMenu();
+}
+
+/**
+ * Setup infinite scroll listener
+ */
+let scrollListener = null;
+function setupInfiniteScroll() {
+    scrollListener = () => {
+        // Check if user scrolled near bottom (within 200px)
+        if ((window.innerHeight + window.scrollY) >= document.body.offsetHeight - 200) {
+            const loadMoreBtn = document.getElementById('load-more-btn');
+            if (loadMoreBtn && loadMoreBtn.offsetParent !== null) {
+                loadMoreItems();
+            }
+        }
+    };
+    window.addEventListener('scroll', scrollListener, { passive: true });
+}
+
+/**
+ * Remove scroll listener
+ */
+function removeScrollListener() {
+    if (scrollListener) {
+        window.removeEventListener('scroll', scrollListener);
+        scrollListener = null;
+    }
+}
+
+/**
+ * Generate HTML for a single product card
+ * Shows product name, brand, description, pricing, and status badges
+ * Handles special pricing display for Flower category (1g, 3.5g, 7g)
+ * @param {Object} item - Product data object
+ * @returns {string} HTML string for the product card
+ */
 function renderProductCard(item) {
     const isFlower = item.category === 'Flower';
     const priceColorClass = item.isFeatured ? 'text-red_sale' : 'text-forest';
@@ -641,17 +841,17 @@ function renderProductCard(item) {
     let priceHtml = '';
     if (isFlower) {
         priceHtml = `
-            <div class="flex flex-col space-y-1">
-                <span class="text-xl font-bold ${priceColorClass}">${item.price_1g || 'N/A'}</span>
-                <span class="text-xs text-sage/90">${item.price_35g || 'N/A'} / 3.5g</span>
+            <div class="flex flex-col space-y-0.5">
+                <span class="text-lg md:text-xl font-bold ${priceColorClass} leading-tight">${item.price_1g || 'N/A'}</span>
+                <span class="text-[10px] md:text-xs text-sage/90 leading-tight">${item.price_35g || 'N/A'} / 3.5g</span>
             </div>
         `;
     } else {
-        priceHtml = `<span class="text-xl font-bold ${priceColorClass}">${item.price || 'N/A'}</span>`;
+        priceHtml = `<span class="text-lg md:text-xl font-bold ${priceColorClass} leading-tight">${item.price || 'N/A'}</span>`;
     }
     
     const soldOutBadge = item.isSoldOut ? `<div class="absolute inset-0 bg-forest/80 flex items-center justify-center rounded-xl pointer-events-none z-10"><span class="text-xl md:text-2xl font-bold text-cream bg-red_sale/90 p-2 md:p-3 shadow-2xl transform -rotate-6 rounded-xl whitespace-nowrap">SOLD OUT</span></div>` : '';
-    const featuredBanner = item.isFeatured ? `<div class="bg-red_sale text-cream text-center text-xs font-bold py-1 uppercase tracking-wider">⭐ FEATURED PRODUCT</div>` : '';
+    const featuredBanner = item.isFeatured ? `<div class="bg-red_sale text-cream text-center text-[10px] md:text-xs font-bold py-0.5 md:py-1 uppercase tracking-wider">⭐ FEATURED</div>` : '';
     
     let topRightBadges = '';
     let badges = [];
@@ -673,17 +873,17 @@ function renderProductCard(item) {
             ${featuredBanner}
             ${topRightBadges}
             
-            <div class="p-4 pt-3 flex flex-col justify-start flex-grow">
-                ${(currentCategory === 'All Products' || currentCategory === 'Specials') && !item.isFeatured ? `<span class="text-xs font-bold text-sage block mb-1">${item.category.toUpperCase()}</span>` : ''}
-                ${(currentCategory === 'All Products' || currentCategory === 'Specials') && item.isFeatured ? `<span class="text-xs font-bold text-sage block mt-6 mb-1">${item.category.toUpperCase()}</span>` : ''}
-                ${(currentCategory === 'All Products' || currentCategory === 'Specials') && (item.isLowStock || item.isOnSale) && !item.isFeatured ? `<span class="text-xs font-bold text-sage block mt-6 mb-1">${item.category.toUpperCase()}</span>` : ''}
+            <div class="p-3 md:p-3.5 pt-2.5 flex flex-col justify-start flex-grow">
+                ${(currentCategory === 'All Products' || currentCategory === 'Specials') && !item.isFeatured ? `<span class="text-[10px] md:text-xs font-bold text-sage block mb-0.5">${item.category.toUpperCase()}</span>` : ''}
+                ${(currentCategory === 'All Products' || currentCategory === 'Specials') && item.isFeatured ? `<span class="text-[10px] md:text-xs font-bold text-sage block mt-4 md:mt-5 mb-0.5">${item.category.toUpperCase()}</span>` : ''}
+                ${(currentCategory === 'All Products' || currentCategory === 'Specials') && (item.isLowStock || item.isOnSale) && !item.isFeatured ? `<span class="text-[10px] md:text-xs font-bold text-sage block mt-4 md:mt-5 mb-0.5">${item.category.toUpperCase()}</span>` : ''}
 
-                <h2 class="text-xl font-bold text-forest mb-1 truncate" title="${item.name}">${item.name}</h2>
-                <p class="text-sage text-xs mb-2"><span class="font-semibold">${item.brand || item.grower || ''}</span> ${item.type ? `| ${item.type}` : ''}</p>
-                <p class="text-forest/80 text-sm line-clamp-2">${item.description || 'No description available.'}</p>
+                <h2 class="text-base md:text-lg font-bold text-forest mb-0.5 md:mb-1 truncate leading-tight" title="${item.name}">${item.name}</h2>
+                <p class="text-[10px] md:text-xs text-sage mb-1 md:mb-1.5 leading-tight"><span class="font-semibold">${item.brand || item.grower || ''}</span> ${item.type ? `| ${item.type}` : ''}</p>
+                <p class="text-[11px] md:text-xs text-forest/80 line-clamp-2 leading-snug">${item.description || ''}</p>
             </div>
 
-            <div class="p-4 pt-3 border-t border-sage/20 mt-auto flex justify-between items-center bg-cream/70">
+            <div class="p-3 md:p-3.5 pt-2 border-t border-sage/20 mt-auto flex justify-between items-center bg-cream/70">
                 <div class="text-forest">${priceHtml}</div>
             </div>
         </div>`;
@@ -691,6 +891,10 @@ function renderProductCard(item) {
 
 // === Authentication & Initialization ===
 
+/**
+ * Authenticate user anonymously with Firebase
+ * Public menu uses anonymous auth (no login required)
+ */
 async function authenticate() { 
     try {
         await window.signInAnonymously(window.auth);
@@ -701,6 +905,11 @@ async function authenticate() {
     }
 }
 
+/**
+ * Initialize the menu application
+ * Sets up UI, data listeners, and handles mock mode for offline testing
+ * @param {boolean} isMock - If true, runs without Firebase (for testing/offline)
+ */
 function initMenu(isMock = false) {
      if (isMock) {
         console.warn("Firebase not initialized, running in mock mode (empty).");
@@ -738,6 +947,7 @@ window.handleEdibleFormFilter = handleEdibleFormFilter;
 window.handleSortChange = handleSortChange;
 window.handleSortDirection = handleSortDirection;
 window.showItemDetailModal = showItemDetailModal;
+window.loadMoreItems = loadMoreItems;
 window.initMenu = initMenu;
 window.authenticate = authenticate;
 

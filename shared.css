@@ -35,6 +35,14 @@ body {
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
 }
+/* Tablet Optimization - More items per page */
+@media (min-width: 768px) and (max-width: 1024px) {
+    /* Tablet-specific optimizations for better readability with more items */
+    .product-card {
+        min-height: auto;
+    }
+}
+
 /* Mobile optimization */
 @media (max-width: 640px) {
     #category-tabs button {

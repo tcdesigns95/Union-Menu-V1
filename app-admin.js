@@ -1,8 +1,11 @@
 // =======================================================================
 // ADMIN MENU APPLICATION (admin.html)
+// Admin panel for managing inventory - add, edit, delete products
+// Extends public app functionality with CRUD operations
 // =======================================================================
 
-// App State (extends public app state)
+// === Application State ===
+// Inherits all state from public app plus admin-specific state
 let inventory = {}; 
 let currentCategory = 'Flower';
 let isAdmin = false;
@@ -20,13 +23,23 @@ let currentFormFilter = 'All';
 let currentWeightFilter = 'All'; 
 let currentCannabinoidFilter = 'All'; 
 let currentEdibleFormFilter = 'All';
+
+// Filter state persistence - stores filter state per category
+let categoryFilterState = {}; // { 'Flower': { typeFilter: 'Indica', sortBy: 'name', ... }, ... }
+
+// Infinite scroll state
+let itemsPerPage = 24; // Number of items to display initially
+let currentPage = 1;
+let allFilteredItems = []; // Store filtered/sorted items for pagination
+
 let appId = 'union-live-menu';
 
 // Use shared config
 const categoryIcons = SHARED_CONFIG.categoryIcons;
 const categoryFields = SHARED_CONFIG.categoryFields;
 
-// Add staffNotes to categoryFields for admin (extend shared config)
+// Add staffNotes field to all categories for admin use (internal notes not visible to customers)
+// This extends the shared config without modifying it directly
 Object.keys(categoryFields).forEach(cat => {
     if (!categoryFields[cat].some(f => f.id === 'staffNotes')) {
         categoryFields[cat].push({ id: 'staffNotes', label: 'Staff Notes', type: 'textarea', adminOnly: true });
@@ -73,7 +86,13 @@ function setupDataListeners() {
 }
 
 // === Admin CRUD Functions ===
+// Create, Read, Update, Delete operations for products
 
+/**
+ * Save a new or existing product to Firestore
+ * Validates required fields, formats prices, and handles admin status flags
+ * Called when admin submits the add/edit product form
+ */
 async function saveItem() {
     const form = document.getElementById('admin-form');
     const itemId = document.getElementById('edit-item-id').value;
@@ -117,6 +136,21 @@ async function saveItem() {
     itemData.isSoldOut = document.getElementById('isSoldOut').checked;
     itemData.staffNotes = document.getElementById('staffNotes').value || '';
     
+    // Add timestamps for tracking
+    const now = new Date().toISOString();
+    if (isNewItem) {
+        itemData.createdAt = now;
+        itemData.updatedAt = now;
+    } else {
+        itemData.updatedAt = now;
+        // Preserve createdAt if it exists
+        if (inventory[currentCategory] && inventory[currentCategory][itemId] && inventory[currentCategory][itemId].createdAt) {
+            itemData.createdAt = inventory[currentCategory][itemId].createdAt;
+        } else {
+            itemData.createdAt = now; // Fallback if missing
+        }
+    }
+    
     try {
         const docRef = window.doc(window.db, path, docId);
         await window.setDoc(docRef, itemData);
@@ -128,6 +162,11 @@ async function saveItem() {
     }
 }
 
+/**
+ * Delete a product from Firestore after user confirmation
+ * @param {string} itemId - Unique product ID to delete
+ * @param {string} category - Product category (determines collection path)
+ */
 async function handleDeleteItem(itemId, category) {
     if (!confirm(`Are you sure you want to delete this item?\n\n${inventory[category][itemId].name}\n\nThis action cannot be undone.`)) {
         return;
@@ -144,8 +183,188 @@ async function handleDeleteItem(itemId, category) {
     }
 }
 
-// === Admin Modal Functions ===
+/**
+ * Duplicate a product - creates a copy with "- Copy" suffix
+ * @param {string} itemId - Product ID to duplicate
+ * @param {string} category - Product category
+ */
+async function handleDuplicateItem(itemId, category) {
+    const item = inventory[category] ? inventory[category][itemId] : null;
+    if (!item) {
+        showMessage("Error: Could not find item to duplicate.", true);
+        return;
+    }
+    
+    // Create duplicate with modified name
+    const duplicateData = { ...item };
+    delete duplicateData.id; // Remove ID so it gets a new one
+    duplicateData.name = `${item.name} - Copy`;
+    
+    // Generate new ID
+    const newId = crypto.randomUUID();
+    const path = getCollectionPath(category, appId);
+    
+    // Set timestamps
+    const now = new Date().toISOString();
+    duplicateData.createdAt = now;
+    duplicateData.updatedAt = now;
+    
+    try {
+        const docRef = window.doc(window.db, path, newId);
+        await window.setDoc(docRef, duplicateData);
+        showMessage('Product duplicated successfully!');
+        
+        // Switch to the new item's category and scroll to it (if possible)
+        if (currentCategory !== category) {
+            changeCategory(category);
+        }
+    } catch (e) {
+        console.error("Error duplicating item:", e);
+        showMessage("Error: Could not duplicate item.", true);
+    }
+}
 
+/**
+ * Quick edit - opens a simplified modal for price and status only
+ * @param {string} itemId - Product ID to quick edit
+ * @param {string} category - Product category
+ */
+async function handleQuickEdit(itemId, category) {
+    const item = inventory[category] ? inventory[category][itemId] : null;
+    if (!item) {
+        showMessage("Error: Could not find item to edit.", true);
+        return;
+    }
+    
+    // Switch to item's category if needed
+    if (currentCategory !== category) {
+        changeCategory(category);
+    }
+    
+    const isFlower = item.category === 'Flower';
+    
+    // Create quick edit modal HTML
+    let priceFieldsHtml = '';
+    if (isFlower) {
+        priceFieldsHtml = `
+            <div>
+                <label class="block text-sm font-bold text-forest mb-1">Price (1g)</label>
+                <input type="text" id="quick-edit-price-1g" value="${(item.price_1g || '').replace('$', '')}" class="w-full p-2 border-2 border-sage/50 rounded-xl bg-white text-forest focus:outline-none focus:ring-2 focus:ring-sage font-serif" placeholder="$9 - $12">
+            </div>
+            <div>
+                <label class="block text-sm font-bold text-forest mb-1">Price (3.5g)</label>
+                <input type="text" id="quick-edit-price-35g" value="${(item.price_35g || '').replace('$', '')}" class="w-full p-2 border-2 border-sage/50 rounded-xl bg-white text-forest focus:outline-none focus:ring-2 focus:ring-sage font-serif" placeholder="$25 - $40">
+            </div>
+        `;
+    } else {
+        priceFieldsHtml = `
+            <div>
+                <label class="block text-sm font-bold text-forest mb-1">Price</label>
+                <input type="text" id="quick-edit-price" value="${(item.price || '').replace('$', '')}" class="w-full p-2 border-2 border-sage/50 rounded-xl bg-white text-forest focus:outline-none focus:ring-2 focus:ring-sage font-serif">
+            </div>
+        `;
+    }
+    
+    const quickEditModal = document.createElement('div');
+    quickEditModal.id = 'quick-edit-modal';
+    quickEditModal.className = 'fixed inset-0 bg-forest bg-opacity-75 flex items-center justify-center z-50 p-4';
+    quickEditModal.innerHTML = `
+        <div class="bg-cream p-6 rounded-xl shadow-2xl w-full max-w-md">
+            <h3 class="text-2xl font-bold text-forest mb-4">Quick Edit: ${item.name}</h3>
+            <div class="space-y-4">
+                ${priceFieldsHtml}
+                <fieldset class="border-2 border-sage/50 p-3 rounded-xl">
+                    <legend class="text-sm font-bold px-2 text-forest">Status</legend>
+                    <div class="grid grid-cols-2 gap-2 mt-2">
+                        <label class="flex items-center space-x-2">
+                            <input type="checkbox" id="quick-edit-featured" ${item.isFeatured ? 'checked' : ''} class="h-5 w-5 text-red_sale rounded">
+                            <span class="text-sm font-semibold">Featured ⭐</span>
+                        </label>
+                        <label class="flex items-center space-x-2">
+                            <input type="checkbox" id="quick-edit-onSale" ${item.isOnSale ? 'checked' : ''} class="h-5 w-5 text-sale_blue rounded">
+                            <span class="text-sm font-semibold">On Sale 🏷️</span>
+                        </label>
+                        <label class="flex items-center space-x-2">
+                            <input type="checkbox" id="quick-edit-lowStock" ${item.isLowStock ? 'checked' : ''} class="h-5 w-5 text-orange_low rounded">
+                            <span class="text-sm font-semibold">Low Stock ⚠️</span>
+                        </label>
+                        <label class="flex items-center space-x-2">
+                            <input type="checkbox" id="quick-edit-soldOut" ${item.isSoldOut ? 'checked' : ''} class="h-5 w-5 text-gray-600 rounded">
+                            <span class="text-sm font-semibold">Sold Out ❌</span>
+                        </label>
+                    </div>
+                </fieldset>
+            </div>
+            <div class="mt-6 flex justify-end space-x-3">
+                <button onclick="closeQuickEdit()" class="bg-gray-400 text-black px-4 py-2 rounded-lg font-bold hover:bg-gray-500 transition">Cancel</button>
+                <button onclick="saveQuickEdit('${itemId}', '${category}')" class="bg-forest text-cream px-4 py-2 rounded-lg font-bold hover:bg-sage transition">Save</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(quickEditModal);
+}
+
+/**
+ * Save quick edit changes
+ */
+async function saveQuickEdit(itemId, category) {
+    const item = inventory[category] ? inventory[category][itemId] : null;
+    if (!item) {
+        showMessage("Error: Item not found.", true);
+        return;
+    }
+    
+    const path = getCollectionPath(category, appId);
+    const isFlower = item.category === 'Flower';
+    
+    // Get updated values
+    const updateData = {
+        ...item,
+        isFeatured: document.getElementById('quick-edit-featured').checked,
+        isOnSale: document.getElementById('quick-edit-onSale').checked,
+        isLowStock: document.getElementById('quick-edit-lowStock').checked,
+        isSoldOut: document.getElementById('quick-edit-soldOut').checked,
+        updatedAt: new Date().toISOString()
+    };
+    
+    // Update prices
+    if (isFlower) {
+        const price1g = document.getElementById('quick-edit-price-1g').value.trim();
+        const price35g = document.getElementById('quick-edit-price-35g').value.trim();
+        if (price1g) updateData.price_1g = `$${price1g.replace('$', '')}`;
+        if (price35g) updateData.price_35g = `$${price35g.replace('$', '')}`;
+    } else {
+        const price = document.getElementById('quick-edit-price').value.trim();
+        if (price) updateData.price = `$${price.replace('$', '')}`;
+    }
+    
+    try {
+        const docRef = window.doc(window.db, path, itemId);
+        await window.setDoc(docRef, updateData);
+        showMessage('Quick edit saved successfully!');
+        closeQuickEdit();
+    } catch (e) {
+        console.error("Error saving quick edit:", e);
+        showMessage("Error: Could not save changes.", true);
+    }
+}
+
+/**
+ * Close quick edit modal
+ */
+function closeQuickEdit() {
+    const modal = document.getElementById('quick-edit-modal');
+    if (modal) {
+        modal.remove();
+    }
+}
+
+// === Admin Modal Functions ===
+// Functions for managing modals (product details, edit/add forms, category selection)
+
+/**
+ * Hide the product detail modal (customer view, rarely used in admin)
+ */
 function hideItemDetailModal() { 
     document.getElementById('item-detail-modal').style.display = 'none'; 
 }
@@ -180,6 +399,11 @@ function selectCategoryForAdd(category) {
     openAdminModal(null);
 }
 
+/**
+ * Open the admin edit/add product modal
+ * Dynamically generates form fields based on category field definitions
+ * @param {Object|null} item - Product object to edit, or null for new product
+ */
 function openAdminModal(item = null) {
     const isNewItem = !item;
     const modalTitle = document.getElementById('admin-modal-title');
@@ -255,6 +479,11 @@ function handleEditItem(itemId, category) {
 
 // === Admin Authentication ===
 
+/**
+ * Handle admin login form submission
+ * Uses Firebase email/password authentication
+ * @param {Event} event - Form submit event
+ */
 function handleLogin(event) {
     event.preventDefault();
     const email = document.getElementById('email').value;
@@ -285,6 +514,11 @@ function handleLogout() {
     });
 }
 
+/**
+ * Show or hide admin controls based on authentication state
+ * Controls visibility of edit/delete buttons, add item button, logout button
+ * @param {boolean} isLoggedIn - Whether user is authenticated as admin
+ */
 function toggleAdminUI(isLoggedIn) {
     isAdmin = isLoggedIn;
     const adminElements = document.querySelectorAll('.admin-controls');
@@ -303,27 +537,86 @@ function toggleAdminUI(isLoggedIn) {
     renderMenu();
 }
 
-// === UI Functions (similar to public but with admin features) ===
+// === UI Functions (inherited from public app with admin enhancements) ===
+// Most UI functions are identical to public app but some include admin-specific features
 
+/**
+ * Save current filter state for the current category (admin version)
+ */
+function saveFilterState() {
+    categoryFilterState[currentCategory] = {
+        searchQuery: currentSearchQuery,
+        typeFilter: currentTypeFilter,
+        sortBy: currentSortBy,
+        sortDirection: currentSortDirection,
+        formatFilter: currentFormatFilter,
+        deviceFilter: currentDeviceFilter,
+        volumeFilter: currentVolumeFilter,
+        ratioFilter: currentRatioFilter,
+        packagingFilter: currentPackagingFilter,
+        infusionFilter: currentInfusionFilter,
+        formFilter: currentFormFilter,
+        weightFilter: currentWeightFilter,
+        cannabinoidFilter: currentCannabinoidFilter,
+        edibleFormFilter: currentEdibleFormFilter
+    };
+}
+
+/**
+ * Restore filter state for a category, or use defaults (admin version)
+ */
+function restoreFilterState(category) {
+    const savedState = categoryFilterState[category];
+    if (savedState) {
+        currentSearchQuery = savedState.searchQuery || '';
+        currentTypeFilter = savedState.typeFilter || 'All';
+        currentSortBy = savedState.sortBy || 'name';
+        currentSortDirection = savedState.sortDirection || 'asc';
+        currentFormatFilter = savedState.formatFilter || 'All';
+        currentDeviceFilter = savedState.deviceFilter || 'All';
+        currentVolumeFilter = savedState.volumeFilter || 'All';
+        currentRatioFilter = savedState.ratioFilter || 'All';
+        currentPackagingFilter = savedState.packagingFilter || 'All';
+        currentInfusionFilter = savedState.infusionFilter || 'All';
+        currentFormFilter = savedState.formFilter || 'All';
+        currentWeightFilter = savedState.weightFilter || 'All';
+        currentCannabinoidFilter = savedState.cannabinoidFilter || 'All';
+        currentEdibleFormFilter = savedState.edibleFormFilter || 'All';
+    } else {
+        // Default values for new category
+        currentSearchQuery = '';
+        currentTypeFilter = 'All';
+        currentSortBy = 'name';
+        currentSortDirection = 'asc';
+        currentFormatFilter = 'All';
+        currentDeviceFilter = 'All';
+        currentVolumeFilter = 'All';
+        currentRatioFilter = 'All';
+        currentPackagingFilter = 'All';
+        currentInfusionFilter = 'All';
+        currentFormFilter = 'All';
+        currentWeightFilter = 'All';
+        currentCannabinoidFilter = 'All';
+        currentEdibleFormFilter = 'All';
+    }
+}
+
+/**
+ * Switch category and update admin UI elements (like Add Item button label)
+ * Now preserves filters when switching categories
+ * @param {string} category - Category name to switch to
+ */
 function changeCategory(category) {
+    // Save current category's filter state before switching
+    saveFilterState();
+    
     currentCategory = category;
     
-    const supportsTypeFilter = ['All Products', 'Flower', 'Cartridges', 'Concentrates', 'Pre-Rolls', 'Edibles'].includes(category);
-    if (!supportsTypeFilter) { 
-        currentTypeFilter = 'All'; 
-    }
+    // Restore filter state for the new category
+    restoreFilterState(category);
     
-    // Reset ALL specific filters when changing categories
-    currentFormatFilter = 'All';
-    currentDeviceFilter = 'All';
-    currentVolumeFilter = 'All';
-    currentRatioFilter = 'All';
-    currentPackagingFilter = 'All';
-    currentInfusionFilter = 'All';
-    currentFormFilter = 'All';
-    currentWeightFilter = 'All';
-    currentCannabinoidFilter = 'All';
-    currentEdibleFormFilter = 'All';
+    // Reset page for infinite scroll
+    currentPage = 1;
 
     // Update Add Item button label
     const addBtnLabel = document.getElementById('add-item-category-label');
@@ -343,84 +636,112 @@ function changeCategory(category) {
 // Import filter handlers from public app (they're the same)
 function handleSearch(event) { 
     currentSearchQuery = event.target.value.toLowerCase().trim(); 
+    saveFilterState();
+    currentPage = 1;
     renderControls(); 
     renderMenu(); 
 }
 
 function handleTypeFilter(type) { 
     currentTypeFilter = type; 
+    saveFilterState();
+    currentPage = 1;
     renderControls(); 
     renderMenu(); 
 }
 
 function handleFormatFilter(format) { 
     currentFormatFilter = format; 
+    saveFilterState();
+    currentPage = 1;
     renderControls(); 
     renderMenu(); 
 }
 
 function handleDeviceFilter(device) { 
     currentDeviceFilter = device; 
+    saveFilterState();
+    currentPage = 1;
     renderControls(); 
     renderMenu(); 
 }
 
 function handleVolumeFilter(volume) { 
     currentVolumeFilter = volume; 
+    saveFilterState();
+    currentPage = 1;
     renderControls(); 
     renderMenu(); 
 }
 
 function handleRatioFilter(ratio) { 
     currentRatioFilter = ratio; 
+    saveFilterState();
+    currentPage = 1;
     renderControls(); 
     renderMenu(); 
 }
 
 function handleFormFilter(form) { 
     currentFormFilter = form; 
+    saveFilterState();
+    currentPage = 1;
     renderControls(); 
     renderMenu(); 
 }
 
 function handleWeightFilter(weight) { 
     currentWeightFilter = weight; 
+    saveFilterState();
+    currentPage = 1;
     renderControls(); 
     renderMenu(); 
 }
 
 function handlePackagingFilter(packaging) { 
     currentPackagingFilter = packaging; 
+    saveFilterState();
+    currentPage = 1;
     renderControls(); 
     renderMenu(); 
 }
 
 function handleInfusionFilter(infused) { 
     currentInfusionFilter = infused; 
+    saveFilterState();
+    currentPage = 1;
     renderControls(); 
     renderMenu(); 
 }
 
 function handleCannabinoidFilter(cannabinoid) { 
     currentCannabinoidFilter = cannabinoid; 
+    saveFilterState();
+    currentPage = 1;
     renderControls(); 
     renderMenu(); 
 }
 
 function handleEdibleFormFilter(form) { 
     currentEdibleFormFilter = form; 
+    saveFilterState();
+    currentPage = 1;
     renderControls(); 
     renderMenu(); 
 }
 
 function handleSortChange(event) { 
     currentSortBy = event.target.value; 
+    saveFilterState();
+    currentPage = 1;
     renderControls(); 
     renderMenu(); 
 }
 
 function handleSortDirection(direction) { 
     currentSortDirection = direction; 
+    saveFilterState();
+    currentPage = 1;
     renderControls(); 
     renderMenu(); 
 }
@@ -639,13 +960,34 @@ function renderControls() {
     });
     
     if (currentCategory === 'All Products' || currentCategory === 'Specials') {
-         sortOptions = [{ value: 'name', label: 'Name' }, { value: 'price', label: 'Price (Default)' }, { value: 'type', label: 'Type' }];
-         if(!['name', 'price', 'type'].includes(currentSortBy)) { currentSortBy = 'name'; }
+         sortOptions = [
+             { value: 'name', label: 'Name' }, 
+             { value: 'price', label: 'Price (Default)' }, 
+             { value: 'type', label: 'Type' },
+             { value: 'updatedAt', label: 'Recently Modified' },
+             { value: 'createdAt', label: 'Newest First' }
+         ];
+         if(!['name', 'price', 'type', 'updatedAt', 'createdAt'].includes(currentSortBy)) { currentSortBy = 'name'; }
     } else if (currentCategory !== 'Flower') {
          sortOptions = sortOptions.filter(opt => !opt.value.startsWith('price_'));
          if (!sortOptions.some(opt => opt.value === 'price')) {
            sortOptions.push({ value: 'price', label: 'Price' });
          }
+         // Add timestamp sorting
+         if (!sortOptions.some(opt => opt.value === 'updatedAt')) {
+           sortOptions.push({ value: 'updatedAt', label: 'Recently Modified' });
+         }
+         if (!sortOptions.some(opt => opt.value === 'createdAt')) {
+           sortOptions.push({ value: 'createdAt', label: 'Newest First' });
+         }
+    } else {
+        // Flower category - add timestamp sorting
+        if (!sortOptions.some(opt => opt.value === 'updatedAt')) {
+           sortOptions.push({ value: 'updatedAt', label: 'Recently Modified' });
+        }
+        if (!sortOptions.some(opt => opt.value === 'createdAt')) {
+           sortOptions.push({ value: 'createdAt', label: 'Newest First' });
+        }
     }
 
     html += `
@@ -771,6 +1113,13 @@ function renderMenu() {
         let bValue = b[currentSortBy] || '';
         let comparison = 0;
         
+        // Handle timestamp sorting (newest first by default)
+        if (currentSortBy === 'updatedAt' || currentSortBy === 'createdAt') {
+            const aTime = aValue ? new Date(aValue).getTime() : 0;
+            const bTime = bValue ? new Date(bValue).getTime() : 0;
+            comparison = bTime - aTime; // Newest first (descending)
+        } else {
+        
         const priceFields = ['price_1g', 'price_35g', 'price_7g', 'price'];
         if (priceFields.includes(currentSortBy) || ((currentCategory === 'All Products' || currentCategory === 'Specials') && currentSortBy === 'price')) {
             if ((currentCategory === 'All Products' || currentCategory === 'Specials') && currentSortBy === 'price') {
@@ -787,10 +1136,23 @@ function renderMenu() {
         } else {
             comparison = String(aValue).localeCompare(String(bValue), undefined, { numeric: true });
         }
+        }
+        
+        // For timestamp fields, reverse if ascending (oldest first)
+        if ((currentSortBy === 'updatedAt' || currentSortBy === 'createdAt') && currentSortDirection === 'asc') {
+            return -comparison;
+        }
         
         return currentSortDirection === 'asc' ? comparison : -comparison;
     });
 
+    // Store filtered items for infinite scroll
+    allFilteredItems = itemsToDisplay;
+    
+    // Calculate items to display for current page
+    const itemsToShow = allFilteredItems.slice(0, currentPage * itemsPerPage);
+    const hasMore = allFilteredItems.length > itemsToShow.length;
+    
     // Render
     if (itemsToDisplay.length === 0) {
         let message = `No items available in the ${currentCategory} category.`;
@@ -803,7 +1165,59 @@ function renderMenu() {
         }
         productList.innerHTML = `<div class="col-span-full text-center text-xl text-sage pt-10 font-serif">${message}</div>`;
     } else {
-        productList.innerHTML = itemsToDisplay.map(renderProductCard).join('');
+        productList.innerHTML = itemsToShow.map(renderProductCard).join('');
+        
+        // Add "Load More" button or infinite scroll trigger
+        if (hasMore) {
+            productList.innerHTML += `
+                <div id="load-more-container" class="col-span-full flex justify-center py-6">
+                    <button id="load-more-btn" onclick="loadMoreItems()" class="bg-sage text-cream px-6 py-3 rounded-lg font-bold hover:bg-forest transition btn-brand">
+                        Load More (${allFilteredItems.length - itemsToShow.length} remaining)
+                    </button>
+                </div>
+            `;
+        }
+    }
+    
+    // Remove old scroll listener and add new one
+    removeScrollListener();
+    if (hasMore) {
+        setupInfiniteScroll();
+    }
+}
+
+/**
+ * Load more items (infinite scroll) - admin version
+ */
+function loadMoreItems() {
+    currentPage++;
+    renderMenu();
+}
+
+/**
+ * Setup infinite scroll listener - admin version
+ */
+let scrollListener = null;
+function setupInfiniteScroll() {
+    scrollListener = () => {
+        // Check if user scrolled near bottom (within 200px)
+        if ((window.innerHeight + window.scrollY) >= document.body.offsetHeight - 200) {
+            const loadMoreBtn = document.getElementById('load-more-btn');
+            if (loadMoreBtn && loadMoreBtn.offsetParent !== null) {
+                loadMoreItems();
+            }
+        }
+    };
+    window.addEventListener('scroll', scrollListener, { passive: true });
+}
+
+/**
+ * Remove scroll listener - admin version
+ */
+function removeScrollListener() {
+    if (scrollListener) {
+        window.removeEventListener('scroll', scrollListener);
+        scrollListener = null;
     }
 }
 
@@ -814,17 +1228,17 @@ function renderProductCard(item) {
     let priceHtml = '';
     if (isFlower) {
         priceHtml = `
-            <div class="flex flex-col space-y-1">
-                <span class="text-xl font-bold ${priceColorClass}">${item.price_1g || 'N/A'}</span>
-                <span class="text-xs text-sage/90">${item.price_35g || 'N/A'} / 3.5g</span>
+            <div class="flex flex-col space-y-0.5">
+                <span class="text-lg md:text-xl font-bold ${priceColorClass} leading-tight">${item.price_1g || 'N/A'}</span>
+                <span class="text-[10px] md:text-xs text-sage/90 leading-tight">${item.price_35g || 'N/A'} / 3.5g</span>
             </div>
         `;
     } else {
-        priceHtml = `<span class="text-xl font-bold ${priceColorClass}">${item.price || 'N/A'}</span>`;
+        priceHtml = `<span class="text-lg md:text-xl font-bold ${priceColorClass} leading-tight">${item.price || 'N/A'}</span>`;
     }
     
     const soldOutBadge = item.isSoldOut ? `<div class="absolute inset-0 bg-forest/80 flex items-center justify-center rounded-xl pointer-events-none z-10"><span class="text-xl md:text-2xl font-bold text-cream bg-red_sale/90 p-2 md:p-3 shadow-2xl transform -rotate-6 rounded-xl whitespace-nowrap">SOLD OUT</span></div>` : '';
-    const featuredBanner = item.isFeatured ? `<div class="bg-red_sale text-cream text-center text-xs font-bold py-1 uppercase tracking-wider">⭐ FEATURED PRODUCT</div>` : '';
+    const featuredBanner = item.isFeatured ? `<div class="bg-red_sale text-cream text-center text-[10px] md:text-xs font-bold py-0.5 md:py-1 uppercase tracking-wider">⭐ FEATURED</div>` : '';
     
     let topRightBadges = '';
     let badges = [];
@@ -842,9 +1256,11 @@ function renderProductCard(item) {
     let adminButtons = '';
     if (isAdmin) {
         adminButtons = `
-            <div class="p-2 bg-forest/10 flex justify-end space-x-2">
-                <button class="bg-forest text-cream p-2 rounded-lg text-xs font-bold btn-brand" onclick="event.stopPropagation(); handleEditItem('${item.id}', '${item.category}')">Edit</button>
-                <button class="bg-red_sale text-white p-2 rounded-lg text-xs font-bold btn-brand" onclick="event.stopPropagation(); handleDeleteItem('${item.id}', '${item.category}')">Delete</button>
+            <div class="p-1.5 md:p-2 bg-forest/10 flex flex-wrap justify-end gap-1.5 md:gap-2">
+                <button class="bg-sage text-cream px-2 py-1 md:px-2.5 md:py-1.5 rounded-lg text-[10px] md:text-xs font-bold btn-brand" onclick="event.stopPropagation(); handleQuickEdit('${item.id}', '${item.category}')" title="Quick Edit">⚡ Quick</button>
+                <button class="bg-forest text-cream px-2 py-1 md:px-2.5 md:py-1.5 rounded-lg text-[10px] md:text-xs font-bold btn-brand" onclick="event.stopPropagation(); handleEditItem('${item.id}', '${item.category}')" title="Full Edit">Edit</button>
+                <button class="bg-orange_low text-white px-2 py-1 md:px-2.5 md:py-1.5 rounded-lg text-[10px] md:text-xs font-bold btn-brand" onclick="event.stopPropagation(); handleDuplicateItem('${item.id}', '${item.category}')" title="Duplicate">Copy</button>
+                <button class="bg-red_sale text-white px-2 py-1 md:px-2.5 md:py-1.5 rounded-lg text-[10px] md:text-xs font-bold btn-brand" onclick="event.stopPropagation(); handleDeleteItem('${item.id}', '${item.category}')" title="Delete">Del</button>
             </div>
         `;
     }
@@ -857,17 +1273,17 @@ function renderProductCard(item) {
             ${featuredBanner}
             ${topRightBadges}
             
-            <div class="p-4 pt-3 flex flex-col justify-start flex-grow">
-                ${(currentCategory === 'All Products' || currentCategory === 'Specials') && !item.isFeatured ? `<span class="text-xs font-bold text-sage block mb-1">${item.category.toUpperCase()}</span>` : ''}
-                ${(currentCategory === 'All Products' || currentCategory === 'Specials') && item.isFeatured ? `<span class="text-xs font-bold text-sage block mt-6 mb-1">${item.category.toUpperCase()}</span>` : ''}
-                ${(currentCategory === 'All Products' || currentCategory === 'Specials') && (item.isLowStock || item.isOnSale) && !item.isFeatured ? `<span class="text-xs font-bold text-sage block mt-6 mb-1">${item.category.toUpperCase()}</span>` : ''}
+            <div class="p-3 md:p-3.5 pt-2.5 flex flex-col justify-start flex-grow">
+                ${(currentCategory === 'All Products' || currentCategory === 'Specials') && !item.isFeatured ? `<span class="text-[10px] md:text-xs font-bold text-sage block mb-0.5">${item.category.toUpperCase()}</span>` : ''}
+                ${(currentCategory === 'All Products' || currentCategory === 'Specials') && item.isFeatured ? `<span class="text-[10px] md:text-xs font-bold text-sage block mt-4 md:mt-5 mb-0.5">${item.category.toUpperCase()}</span>` : ''}
+                ${(currentCategory === 'All Products' || currentCategory === 'Specials') && (item.isLowStock || item.isOnSale) && !item.isFeatured ? `<span class="text-[10px] md:text-xs font-bold text-sage block mt-4 md:mt-5 mb-0.5">${item.category.toUpperCase()}</span>` : ''}
 
-                <h2 class="text-xl font-bold text-forest mb-1 truncate" title="${item.name}">${item.name}</h2>
-                <p class="text-sage text-xs mb-2"><span class="font-semibold">${item.brand || item.grower || ''}</span> ${item.type ? `| ${item.type}` : ''}</p>
-                <p class="text-forest/80 text-sm line-clamp-2">${item.description || 'No description available.'}</p>
+                <h2 class="text-base md:text-lg font-bold text-forest mb-0.5 md:mb-1 truncate leading-tight" title="${item.name}">${item.name}</h2>
+                <p class="text-[10px] md:text-xs text-sage mb-1 md:mb-1.5 leading-tight"><span class="font-semibold">${item.brand || item.grower || ''}</span> ${item.type ? `| ${item.type}` : ''}</p>
+                <p class="text-[11px] md:text-xs text-forest/80 line-clamp-2 leading-snug">${item.description || ''}</p>
             </div>
 
-            <div class="p-4 pt-3 border-t border-sage/20 mt-auto flex justify-between items-center bg-cream/70">
+            <div class="p-3 md:p-3.5 pt-2 border-t border-sage/20 mt-auto flex justify-between items-center bg-cream/70">
                 <div class="text-forest">${priceHtml}</div>
             </div>
             
@@ -877,6 +1293,11 @@ function renderProductCard(item) {
 
 // === Initialization ===
 
+/**
+ * Initialize the admin menu application
+ * Similar to public app but waits for authentication before showing UI
+ * @param {boolean} isMock - If true, runs without Firebase (for testing/offline)
+ */
 function initMenu(isMock = false) {
      if (isMock) {
         console.warn("Firebase not initialized, running in mock mode (empty).");
@@ -896,7 +1317,10 @@ function initMenu(isMock = false) {
     setupDataListeners();
 }
 
-// Function to update appId
+/**
+ * Update the Firebase app ID (called from admin.html initialization)
+ * @param {string} newAppId - New application ID
+ */
 function setAppId(newAppId) {
     appId = newAppId;
 }
@@ -928,6 +1352,11 @@ window.handleCannabinoidFilter = handleCannabinoidFilter;
 window.handleEdibleFormFilter = handleEdibleFormFilter;
 window.handleSortChange = handleSortChange;
 window.handleSortDirection = handleSortDirection;
+window.loadMoreItems = loadMoreItems;
+window.handleDuplicateItem = handleDuplicateItem;
+window.handleQuickEdit = handleQuickEdit;
+window.saveQuickEdit = saveQuickEdit;
+window.closeQuickEdit = closeQuickEdit;
 window.initMenu = initMenu;
 window.toggleAdminUI = toggleAdminUI;
 
