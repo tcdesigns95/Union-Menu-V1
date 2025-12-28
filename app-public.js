@@ -781,7 +781,8 @@ function renderMenu() {
     
     // Apply view mode classes to container
     if (currentViewMode === 'list') {
-        productList.className = 'pt-4 bg-white rounded-lg overflow-hidden border border-sage/20 shadow-md';
+        // List view: 1 column on mobile, 2 separate grid lists on tablet (md) and up
+        productList.className = 'grid grid-cols-1 md:grid-cols-2 pt-4';
     } else {
         productList.className = 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-2 md:gap-3 pt-4';
     }
@@ -963,7 +964,10 @@ function renderProductListItem(item) {
         statusBadge = '<span class="bg-orange_low text-white text-[9px] font-bold px-1.5 py-0.5 rounded">LOW</span>';
     }
     
-    const listItemClasses = `flex items-center justify-between p-2 md:p-2.5 bg-white border-b border-sage/20 hover:bg-cream/50 transition ${item.isSoldOut ? 'opacity-60' : 'cursor-pointer'}`;
+    // List item wrapper for grid layout (2 columns on tablet)
+    // Borders are handled by CSS for tablet view to create two separate grid lists
+    // Reduced vertical padding to make items closer together
+    const listItemClasses = `flex items-center justify-between px-2 md:px-2.5 py-1 md:py-1.5 bg-white hover:bg-cream/50 transition ${item.isSoldOut ? 'opacity-60' : 'cursor-pointer'}`;
     
     return `
         <div class="${listItemClasses}" onclick="${item.isSoldOut ? '' : `showItemDetailModal('${item.id}')`}">

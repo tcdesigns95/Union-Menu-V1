@@ -48,6 +48,75 @@ body {
     max-height: none;
 }
 
+/* List view 2-column layout on tablets - two separate grid lists */
+@media (min-width: 768px) {
+    /* Remove default container styling for list view on tablets */
+    #product-list.grid-cols-1.md\:grid-cols-2 {
+        gap: 1rem; /* Space between the two grid lists */
+        padding: 0;
+        background: transparent;
+        border: none;
+        box-shadow: none;
+    }
+    
+    /* Base styling for all list items */
+    #product-list.grid-cols-1.md\:grid-cols-2 > div {
+        background-color: rgba(255, 255, 255, 1);
+        border: 1px solid rgba(128, 138, 111, 0.2);
+        border-radius: 0;
+    }
+    
+    /* Left column items - create left grid list appearance */
+    #product-list.grid-cols-1.md\:grid-cols-2 > div:nth-child(odd) {
+        border-left: 1px solid rgba(128, 138, 111, 0.25);
+        border-right: 1px solid rgba(128, 138, 111, 0.15);
+        margin-right: 0;
+    }
+    
+    /* Right column items - create right grid list appearance */
+    #product-list.grid-cols-1.md\:grid-cols-2 > div:nth-child(even) {
+        border-right: 1px solid rgba(128, 138, 111, 0.25);
+        border-left: 1px solid rgba(128, 138, 111, 0.15);
+        margin-left: 0;
+    }
+    
+    /* Remove top border from items that aren't first in their column */
+    #product-list.grid-cols-1.md\:grid-cols-2 > div:nth-child(odd):not(:first-child) {
+        border-top: 1px solid rgba(128, 138, 111, 0.1);
+    }
+    #product-list.grid-cols-1.md\:grid-cols-2 > div:nth-child(even):not(:nth-child(2)) {
+        border-top: 1px solid rgba(128, 138, 111, 0.1);
+    }
+    
+    /* Remove bottom border from items that aren't last in their column */
+    #product-list.grid-cols-1.md\:grid-cols-2 > div:nth-child(odd):not(:last-child):not(:nth-last-child(2)) {
+        border-bottom: 1px solid rgba(128, 138, 111, 0.1);
+    }
+    #product-list.grid-cols-1.md\:grid-cols-2 > div:nth-child(even):not(:last-child) {
+        border-bottom: 1px solid rgba(128, 138, 111, 0.1);
+    }
+    
+    /* First item in left column - squared corners */
+    #product-list.grid-cols-1.md\:grid-cols-2 > div:nth-child(1) {
+        border-top-left-radius: 0;
+        border-top: 1px solid rgba(128, 138, 111, 0.25);
+    }
+    
+    /* First item in right column - squared corners */
+    #product-list.grid-cols-1.md\:grid-cols-2 > div:nth-child(2) {
+        border-top-right-radius: 0;
+        border-top: 1px solid rgba(128, 138, 111, 0.25);
+    }
+    
+    /* Add subtle shadow to each column for depth */
+    #product-list.grid-cols-1.md\:grid-cols-2 > div:nth-child(odd) {
+        box-shadow: -1px 0 4px rgba(0, 0, 0, 0.04);
+    }
+    #product-list.grid-cols-1.md\:grid-cols-2 > div:nth-child(even) {
+        box-shadow: 1px 0 4px rgba(0, 0, 0, 0.04);
+    }
+}
+
 /* Compact grid for more items */
 .grid-view .product-card {
     min-height: auto;
