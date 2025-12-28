@@ -32,6 +32,9 @@ let itemsPerPage = 24; // Number of items to display initially
 let currentPage = 1;
 let allFilteredItems = []; // Store filtered/sorted items for pagination
 
+// View mode: 'grid' or 'list'
+let currentViewMode = localStorage.getItem('adminViewMode') || 'grid';
+
 let appId = 'union-live-menu';
 
 // Use shared config
@@ -990,6 +993,23 @@ function renderControls() {
         }
     }
 
+    // View Mode Toggle
+    html += `
+        <div class="mb-2 p-2 bg-cream shadow-inner rounded-xl border border-sage/30 flex items-center justify-between">
+            <div class="flex items-center space-x-2">
+                <span class="text-xs font-bold text-forest whitespace-nowrap">View:</span>
+                <button onclick="toggleViewMode('grid')" class="p-1.5 px-3 rounded-lg text-xs font-semibold transition btn-brand ${currentViewMode === 'grid' ? 'bg-forest text-cream' : 'bg-white text-forest border border-sage/50 hover:bg-sage/10'}" title="Grid View">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="inline-block mr-1"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+                    Grid
+                </button>
+                <button onclick="toggleViewMode('list')" class="p-1.5 px-3 rounded-lg text-xs font-semibold transition btn-brand ${currentViewMode === 'list' ? 'bg-forest text-cream' : 'bg-white text-forest border border-sage/50 hover:bg-sage/10'}" title="List View">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="inline-block mr-1"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
+                    List
+                </button>
+            </div>
+        </div>
+    `;
+
     html += `
         <div class="flex flex-col sm:flex-row justify-between items-center space-y-3 sm:space-y-0 sm:space-x-4 mb-2 p-2 bg-cream shadow-inner rounded-xl border border-sage/30">
             <div class="flex items-center space-x-2 w-full sm:w-auto">
@@ -1153,6 +1173,13 @@ function renderMenu() {
     const itemsToShow = allFilteredItems.slice(0, currentPage * itemsPerPage);
     const hasMore = allFilteredItems.length > itemsToShow.length;
     
+    // Apply view mode classes to container
+    if (currentViewMode === 'list') {
+        productList.className = 'pt-4 bg-white rounded-lg overflow-hidden border border-sage/20 shadow-md';
+    } else {
+        productList.className = 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-2 md:gap-3 pt-4';
+    }
+    
     // Render
     if (itemsToDisplay.length === 0) {
         let message = `No items available in the ${currentCategory} category.`;
@@ -1163,19 +1190,25 @@ function renderMenu() {
         } else if (currentTypeFilter !== 'All') { 
             message = `No ${currentTypeFilter} products found in this category.`; 
         }
+        productList.className = 'pt-4';
         productList.innerHTML = `<div class="col-span-full text-center text-xl text-sage pt-10 font-serif">${message}</div>`;
     } else {
-        productList.innerHTML = itemsToShow.map(renderProductCard).join('');
+        if (currentViewMode === 'list') {
+            productList.innerHTML = itemsToShow.map(renderProductListItem).join('');
+        } else {
+            productList.innerHTML = itemsToShow.map(renderProductCard).join('');
+        }
         
         // Add "Load More" button or infinite scroll trigger
         if (hasMore) {
-            productList.innerHTML += `
-                <div id="load-more-container" class="col-span-full flex justify-center py-6">
-                    <button id="load-more-btn" onclick="loadMoreItems()" class="bg-sage text-cream px-6 py-3 rounded-lg font-bold hover:bg-forest transition btn-brand">
+            const loadMoreHtml = `
+                <div id="load-more-container" class="${currentViewMode === 'list' ? 'p-4 bg-cream border-t border-sage/20' : 'col-span-full'} flex justify-center py-4">
+                    <button id="load-more-btn" onclick="loadMoreItems()" class="bg-sage text-cream px-6 py-3 rounded-lg font-bold hover:bg-forest transition btn-brand text-sm">
                         Load More (${allFilteredItems.length - itemsToShow.length} remaining)
                     </button>
                 </div>
             `;
+            productList.innerHTML += loadMoreHtml;
         }
     }
     
@@ -1221,6 +1254,17 @@ function removeScrollListener() {
     }
 }
 
+/**
+ * Toggle between grid and list view (admin version)
+ * @param {string} mode - 'grid' or 'list'
+ */
+function toggleViewMode(mode) {
+    currentViewMode = mode;
+    localStorage.setItem('adminViewMode', mode);
+    renderControls(); // Re-render controls to update button colors
+    renderMenu();
+}
+
 function renderProductCard(item) {
     const isFlower = item.category === 'Flower';
     const priceColorClass = item.isFeatured ? 'text-red_sale' : 'text-forest';
@@ -1229,12 +1273,12 @@ function renderProductCard(item) {
     if (isFlower) {
         priceHtml = `
             <div class="flex flex-col space-y-0.5">
-                <span class="text-lg md:text-xl font-bold ${priceColorClass} leading-tight">${item.price_1g || 'N/A'}</span>
-                <span class="text-[10px] md:text-xs text-sage/90 leading-tight">${item.price_35g || 'N/A'} / 3.5g</span>
+                <span class="text-base md:text-lg font-bold ${priceColorClass} leading-tight">${item.price_1g || 'N/A'}</span>
+                <span class="text-[9px] text-sage/90 leading-tight">${item.price_35g || 'N/A'} / 3.5g</span>
             </div>
         `;
     } else {
-        priceHtml = `<span class="text-lg md:text-xl font-bold ${priceColorClass} leading-tight">${item.price || 'N/A'}</span>`;
+        priceHtml = `<span class="text-base md:text-lg font-bold ${priceColorClass} leading-tight">${item.price || 'N/A'}</span>`;
     }
     
     const soldOutBadge = item.isSoldOut ? `<div class="absolute inset-0 bg-forest/80 flex items-center justify-center rounded-xl pointer-events-none z-10"><span class="text-xl md:text-2xl font-bold text-cream bg-red_sale/90 p-2 md:p-3 shadow-2xl transform -rotate-6 rounded-xl whitespace-nowrap">SOLD OUT</span></div>` : '';
@@ -1265,7 +1309,8 @@ function renderProductCard(item) {
         `;
     }
 
-    const cardClasses = `relative flex flex-col bg-white rounded-xl shadow-lg transition-transform duration-300 ${isAdmin ? 'hover:scale-[1.02]' : 'hover:scale-[1.03]'} overflow-hidden border border-sage/30 ${item.isSoldOut ? 'sold-out' : ''}`;
+    // More compact grid card classes
+    const cardClasses = `relative flex flex-col bg-white rounded-lg shadow-md transition-transform duration-200 hover:scale-[1.02] overflow-hidden border border-sage/20 ${item.isSoldOut ? 'sold-out' : ''}`;
     
     return `
         <div class="${cardClasses}">
@@ -1273,22 +1318,90 @@ function renderProductCard(item) {
             ${featuredBanner}
             ${topRightBadges}
             
-            <div class="p-3 md:p-3.5 pt-2.5 flex flex-col justify-start flex-grow">
-                ${(currentCategory === 'All Products' || currentCategory === 'Specials') && !item.isFeatured ? `<span class="text-[10px] md:text-xs font-bold text-sage block mb-0.5">${item.category.toUpperCase()}</span>` : ''}
-                ${(currentCategory === 'All Products' || currentCategory === 'Specials') && item.isFeatured ? `<span class="text-[10px] md:text-xs font-bold text-sage block mt-4 md:mt-5 mb-0.5">${item.category.toUpperCase()}</span>` : ''}
-                ${(currentCategory === 'All Products' || currentCategory === 'Specials') && (item.isLowStock || item.isOnSale) && !item.isFeatured ? `<span class="text-[10px] md:text-xs font-bold text-sage block mt-4 md:mt-5 mb-0.5">${item.category.toUpperCase()}</span>` : ''}
+            <div class="p-2 md:p-2.5 pt-2 flex flex-col justify-start flex-grow">
+                ${(currentCategory === 'All Products' || currentCategory === 'Specials') && !item.isFeatured ? `<span class="text-[9px] font-bold text-sage block mb-0.5">${item.category.toUpperCase()}</span>` : ''}
+                ${(currentCategory === 'All Products' || currentCategory === 'Specials') && item.isFeatured ? `<span class="text-[9px] font-bold text-sage block mt-3 mb-0.5">${item.category.toUpperCase()}</span>` : ''}
+                ${(currentCategory === 'All Products' || currentCategory === 'Specials') && (item.isLowStock || item.isOnSale) && !item.isFeatured ? `<span class="text-[9px] font-bold text-sage block mt-3 mb-0.5">${item.category.toUpperCase()}</span>` : ''}
 
-                <h2 class="text-base md:text-lg font-bold text-forest mb-0.5 md:mb-1 truncate leading-tight" title="${item.name}">${item.name}</h2>
-                <p class="text-[10px] md:text-xs text-sage mb-1 md:mb-1.5 leading-tight"><span class="font-semibold">${item.brand || item.grower || ''}</span> ${item.type ? `| ${item.type}` : ''}</p>
-                <p class="text-[11px] md:text-xs text-forest/80 line-clamp-2 leading-snug">${item.description || ''}</p>
+                <h2 class="text-sm md:text-base font-bold text-forest mb-0.5 truncate leading-tight" title="${item.name}">${item.name}</h2>
+                <p class="text-[9px] text-sage mb-1 leading-tight"><span class="font-semibold">${item.brand || item.grower || ''}</span> ${item.type ? `| ${item.type}` : ''}</p>
+                <p class="text-[10px] text-forest/70 line-clamp-1 leading-tight hidden md:block">${item.description || ''}</p>
             </div>
 
-            <div class="p-3 md:p-3.5 pt-2 border-t border-sage/20 mt-auto flex justify-between items-center bg-cream/70">
+            <div class="p-2 md:p-2.5 pt-1.5 border-t border-sage/20 mt-auto flex justify-between items-center bg-cream/70">
                 <div class="text-forest">${priceHtml}</div>
             </div>
             
             ${adminButtons}
         </div>`;
+}
+
+/**
+ * Generate HTML for a single product list item (list view - condensed) - admin version
+ * Horizontal layout with minimal info for fast scanning
+ * @param {Object} item - Product data object
+ * @returns {string} HTML string for the list item
+ */
+function renderProductListItem(item) {
+    const isFlower = item.category === 'Flower';
+    const priceColorClass = item.isFeatured ? 'text-red_sale' : 'text-forest';
+    
+    let priceText = '';
+    if (isFlower) {
+        priceText = item.price_1g || 'N/A';
+    } else {
+        priceText = item.price || 'N/A';
+    }
+    
+    // Status indicators
+    let statusBadge = '';
+    if (item.isFeatured) {
+        statusBadge = '<span class="bg-red_sale text-cream text-[9px] font-bold px-1.5 py-0.5 rounded">⭐</span>';
+    } else if (item.isSoldOut) {
+        statusBadge = '<span class="bg-red_sale text-white text-[9px] font-bold px-1.5 py-0.5 rounded">OUT</span>';
+    } else if (item.isOnSale) {
+        statusBadge = '<span class="bg-sale_blue text-white text-[9px] font-bold px-1.5 py-0.5 rounded">SALE</span>';
+    } else if (item.isLowStock) {
+        statusBadge = '<span class="bg-orange_low text-white text-[9px] font-bold px-1.5 py-0.5 rounded">LOW</span>';
+    }
+    
+    // Admin buttons for list view (compact)
+    let adminButtonsList = '';
+    if (isAdmin) {
+        adminButtonsList = `
+            <div class="flex-shrink-0 flex space-x-1 ml-2">
+                <button class="bg-sage text-cream px-2 py-1 rounded text-[9px] font-bold btn-brand" onclick="event.stopPropagation(); handleQuickEdit('${item.id}', '${item.category}')" title="Quick Edit">⚡</button>
+                <button class="bg-forest text-cream px-2 py-1 rounded text-[9px] font-bold btn-brand" onclick="event.stopPropagation(); handleEditItem('${item.id}', '${item.category}')" title="Edit">✏️</button>
+                <button class="bg-orange_low text-white px-2 py-1 rounded text-[9px] font-bold btn-brand" onclick="event.stopPropagation(); handleDuplicateItem('${item.id}', '${item.category}')" title="Duplicate">📋</button>
+                <button class="bg-red_sale text-white px-2 py-1 rounded text-[9px] font-bold btn-brand" onclick="event.stopPropagation(); handleDeleteItem('${item.id}', '${item.category}')" title="Delete">🗑️</button>
+            </div>
+        `;
+    }
+    
+    const listItemClasses = `flex items-center justify-between p-2 md:p-2.5 bg-white border-b border-sage/20 hover:bg-cream/50 transition ${item.isSoldOut ? 'opacity-60' : ''}`;
+    
+    return `
+        <div class="${listItemClasses}">
+            <div class="flex-1 min-w-0 pr-2 flex items-center">
+                <div class="flex-1 min-w-0">
+                    <div class="flex items-center space-x-2">
+                        ${statusBadge}
+                        <h3 class="text-sm md:text-base font-bold text-forest truncate" title="${item.name}">${item.name}</h3>
+                    </div>
+                    <p class="text-[10px] md:text-xs text-sage truncate">
+                        <span class="font-semibold">${item.brand || item.grower || ''}</span>
+                        ${item.type ? ` | ${item.type}` : ''}
+                        ${isFlower && item.price_35g ? ` | ${item.price_35g} / 3.5g` : ''}
+                    </p>
+                </div>
+                <div class="flex-shrink-0 text-right mr-2">
+                    <div class="text-base md:text-lg font-bold ${priceColorClass}">${priceText}</div>
+                    ${(currentCategory === 'All Products' || currentCategory === 'Specials') ? `<div class="text-[9px] text-sage/70">${item.category}</div>` : ''}
+                </div>
+            </div>
+            ${adminButtonsList}
+        </div>
+    `;
 }
 
 // === Initialization ===
@@ -1352,6 +1465,7 @@ window.handleCannabinoidFilter = handleCannabinoidFilter;
 window.handleEdibleFormFilter = handleEdibleFormFilter;
 window.handleSortChange = handleSortChange;
 window.handleSortDirection = handleSortDirection;
+window.toggleViewMode = toggleViewMode;
 window.loadMoreItems = loadMoreItems;
 window.handleDuplicateItem = handleDuplicateItem;
 window.handleQuickEdit = handleQuickEdit;

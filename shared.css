@@ -43,6 +43,16 @@ body {
     }
 }
 
+/* List view optimizations */
+#product-list.list-view {
+    max-height: none;
+}
+
+/* Compact grid for more items */
+.grid-view .product-card {
+    min-height: auto;
+}
+
 /* Mobile optimization */
 @media (max-width: 640px) {
     #category-tabs button {
