@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Login - Union Dispensary</title>
+    
+    <!-- Custom Google Fonts for branding -->
+    <link href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Lora:wght@400;700&display=swap" rel="stylesheet">
+    
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        // === Custom Tailwind Configuration for Branding ===
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        cream: '#F8F2E2',
+                        sage: '#808A6F',
+                        forest: '#22352F',
+                        red_sale: '#EF4444',
+                        orange_low: '#F59E0B',
+                        sale_blue: '#3B82F6',
+                    },
+                    fontFamily: {
+                        script: ['Great Vibes', 'cursive'],
+                        serif: ['Lora', 'serif'],
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    
+    <!-- Shared Styles -->
+    <link rel="stylesheet" href="shared.css">
+</head>
+<body class="bg-sage min-h-screen flex items-center justify-center p-4">
+    
+    <!-- Login Container -->
+    <div class="w-full max-w-md">
+        <!-- Logo/Header -->
+        <div class="text-center mb-8">
+            <h1 class="text-4xl md:text-5xl font-script text-cream mb-2">
+                Union Dispensary
+            </h1>
+            <p class="text-cream/80 text-lg font-serif">Admin Portal</p>
+        </div>
+
+        <!-- Login Card -->
+        <div class="bg-cream p-8 md:p-10 rounded-xl shadow-2xl border-2 border-forest/20">
+            <h2 class="text-3xl font-bold text-forest mb-2 text-center font-serif">Admin Login</h2>
+            <p class="text-center text-forest/70 mb-6 text-sm">Enter your credentials to access the admin panel</p>
+            
+            <!-- Error Message -->
+            <div id="login-error" class="hidden bg-red_sale/10 border-2 border-red_sale text-red_sale p-3 rounded-lg mb-4 text-sm font-semibold text-center"></div>
+            
+            <!-- Login Form -->
+            <form id="login-form" class="space-y-5">
+                <div>
+                    <label for="email" class="block text-sm font-bold text-forest mb-2 font-serif">Email Address</label>
+                    <input 
+                        type="email" 
+                        id="email" 
+                        required 
+                        autocomplete="email"
+                        class="w-full p-3 border-2 border-sage/50 rounded-xl bg-white text-forest focus:outline-none focus:ring-2 focus:ring-sage focus:border-sage font-serif text-base"
+                        placeholder="admin@uniondispensary.com"
+                    >
+                </div>
+                
+                <div>
+                    <label for="password" class="block text-sm font-bold text-forest mb-2 font-serif">Password</label>
+                    <input 
+                        type="password" 
+                        id="password" 
+                        required 
+                        autocomplete="current-password"
+                        class="w-full p-3 border-2 border-sage/50 rounded-xl bg-white text-forest focus:outline-none focus:ring-2 focus:ring-sage focus:border-sage font-serif text-base"
+                        placeholder="Enter your password"
+                    >
+                </div>
+                
+                <button 
+                    type="submit" 
+                    id="login-button"
+                    class="w-full bg-sage text-cream p-4 rounded-xl font-bold hover:bg-forest transition btn-brand text-lg font-serif shadow-lg"
+                >
+                    Sign In
+                </button>
+            </form>
+            
+            <!-- Loading Indicator -->
+            <div id="login-loading" class="hidden text-center mt-4">
+                <p class="text-sage font-serif">Authenticating...</p>
+            </div>
+        </div>
+        
+        <!-- Back to Menu Link -->
+        <div class="text-center mt-6 space-y-2">
+            <a href="index.html" class="text-cream/80 hover:text-cream transition font-serif text-sm underline block">
+                ← Back to Customer Menu
+            </a>
+            <button 
+                id="clear-session-btn" 
+                onclick="clearSession()" 
+                class="text-cream/60 hover:text-cream transition font-serif text-xs underline bg-transparent border-none cursor-pointer p-0"
+            >
+                Clear Session (for testing)
+            </button>
+        </div>
+    </div>
+
+    <!-- Firebase Auth Script -->
+    <script src="firebase-auth.js"></script>
+    
+    <!-- Login Logic -->
+    <script>
+        document.addEventListener('DOMContentLoaded', async () => {
+            // Initialize Firebase
+            await initializeFirebase();
+            
+            // Check if user is already logged in
+            if (window.auth) {
+                window.onAuthStateChanged(window.auth, (user) => {
+                    if (user) {
+                        // User is already logged in, redirect to admin
+                        window.location.href = 'admin.html';
+                    }
+                });
+            }
+            
+            // Set up login form handler
+            const loginForm = document.getElementById('login-form');
+            const emailInput = document.getElementById('email');
+            const passwordInput = document.getElementById('password');
+            const errorDiv = document.getElementById('login-error');
+            const loadingDiv = document.getElementById('login-loading');
+            const loginButton = document.getElementById('login-button');
+            
+            loginForm.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                
+                // Clear previous errors
+                errorDiv.classList.add('hidden');
+                errorDiv.textContent = '';
+                
+                // Show loading state
+                loadingDiv.classList.remove('hidden');
+                loginButton.disabled = true;
+                loginButton.textContent = 'Signing In...';
+                
+                const email = emailInput.value.trim();
+                const password = passwordInput.value;
+                
+                if (!email || !password) {
+                    showError('Please enter both email and password.');
+                    return;
+                }
+                
+                if (!window.auth) {
+                    showError('Firebase authentication is not initialized. Please check your configuration.');
+                    return;
+                }
+                
+                try {
+                    await window.signInWithEmailAndPassword(window.auth, email, password);
+                    // Success - onAuthStateChanged will handle redirect
+                    loadingDiv.classList.remove('hidden');
+                    loadingDiv.innerHTML = '<p class="text-sage font-serif">Login successful! Redirecting...</p>';
+                } catch (error) {
+                    console.error('Login error:', error);
+                    let errorMessage = 'Login failed. Please check your credentials.';
+                    
+                    // Provide more specific error messages
+                    switch (error.code) {
+                        case 'auth/user-not-found':
+                            errorMessage = 'No account found with this email address.';
+                            break;
+                        case 'auth/wrong-password':
+                            errorMessage = 'Incorrect password. Please try again.';
+                            break;
+                        case 'auth/invalid-email':
+                            errorMessage = 'Invalid email address format.';
+                            break;
+                        case 'auth/too-many-requests':
+                            errorMessage = 'Too many failed login attempts. Please try again later.';
+                            break;
+                        case 'auth/network-request-failed':
+                            errorMessage = 'Network error. Please check your connection.';
+                            break;
+                    }
+                    
+                    showError(errorMessage);
+                } finally {
+                    loadingDiv.classList.add('hidden');
+                    loginButton.disabled = false;
+                    loginButton.textContent = 'Sign In';
+                }
+            });
+            
+            function showError(message) {
+                errorDiv.textContent = message;
+                errorDiv.classList.remove('hidden');
+            }
+            
+            // Set up auth state listener for redirect
+            if (window.auth) {
+                window.onAuthStateChanged(window.auth, (user) => {
+                    if (user) {
+                        // User successfully logged in, redirect to admin
+                        window.location.href = 'admin.html';
+                    }
+                });
+            }
+            
+            // Clear session function for testing
+            window.clearSession = async function() {
+                if (window.auth && window.signOut) {
+                    try {
+                        await window.signOut(window.auth);
+                        console.log("Session cleared. You can now test the login page.");
+                        // Reload the page to show login form
+                        window.location.reload();
+                    } catch (error) {
+                        console.error("Error clearing session:", error);
+                        alert("Error clearing session. You may need to manually log out from the admin panel.");
+                    }
+                } else {
+                    alert("Auth not initialized. Try logging out from the admin panel first.");
+                }
+            };
+        });
+    </script>
+</body>
+</html>
+

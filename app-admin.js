@@ -60,7 +60,7 @@ function setupDataListeners() {
             const itemsMap = {};
             snapshot.forEach(doc => {
                 const data = doc.data();
-                itemsMap[doc.id] = { 
+                const itemData = { 
                     id: doc.id, 
                     ...data, 
                     category: category,
@@ -69,9 +69,21 @@ function setupDataListeners() {
                     isLowStock: data.isLowStock !== undefined ? !!data.isLowStock : false,
                     isOnSale: data.isOnSale !== undefined ? !!data.isOnSale : false 
                 };
+                
+                // Backfill soldOutAt timestamp if item is sold out but missing timestamp
+                if (itemData.isSoldOut && !itemData.soldOutAt && isAdmin) {
+                    backfillSoldOutTimestamp(category, doc.id, itemData);
+                }
+                
+                itemsMap[doc.id] = itemData;
             });
             inventory[category] = itemsMap;
             renderMenu();
+            
+            // Check for items sold out 60+ days and auto-delete them
+            if (isAdmin) {
+                checkAndDeleteOldSoldOutItems();
+            }
             
             const loadingIndicator = document.getElementById('loading-indicator');
             if (loadingIndicator) {
@@ -86,6 +98,74 @@ function setupDataListeners() {
             }
         });
     });
+}
+
+/**
+ * Backfill soldOutAt timestamp for items that are sold out but missing the timestamp
+ * This handles legacy items that were marked sold out before we started tracking timestamps
+ * @param {string} category - Product category
+ * @param {string} itemId - Product ID
+ * @param {Object} itemData - Item data
+ */
+async function backfillSoldOutTimestamp(category, itemId, itemData) {
+    try {
+        const path = getCollectionPath(category, appId);
+        const docRef = window.doc(window.db, path, itemId);
+        // Use updatedAt as fallback, or current time if that's also missing
+        const fallbackTimestamp = itemData.updatedAt || itemData.createdAt || new Date().toISOString();
+        // Use setDoc with merge to only update the soldOutAt field
+        const updateData = { ...itemData, soldOutAt: fallbackTimestamp };
+        await window.setDoc(docRef, updateData);
+        console.log(`Backfilled soldOutAt timestamp for ${itemData.name}`);
+    } catch (error) {
+        console.error(`Error backfilling soldOutAt for ${itemData.name}:`, error);
+    }
+}
+
+/**
+ * Check for items that have been sold out for 60+ days and automatically delete them
+ * Only runs when admin is logged in
+ */
+async function checkAndDeleteOldSoldOutItems() {
+    if (!isAdmin) return;
+    
+    const now = new Date();
+    const sixtyDaysAgo = new Date(now.getTime() - (60 * 24 * 60 * 60 * 1000)); // 60 days in milliseconds
+    let deletedCount = 0;
+    
+    try {
+        for (const category of allCategories) {
+            if (!inventory[category]) continue;
+            
+            for (const itemId in inventory[category]) {
+                const item = inventory[category][itemId];
+                
+                // Check if item is sold out and has soldOutAt timestamp
+                if (item.isSoldOut && item.soldOutAt) {
+                    const soldOutDate = new Date(item.soldOutAt);
+                    
+                    // If sold out for 60+ days, delete it
+                    if (soldOutDate <= sixtyDaysAgo) {
+                        const path = getCollectionPath(category, appId);
+                        try {
+                            const docRef = window.doc(window.db, path, itemId);
+                            await window.deleteDoc(docRef);
+                            deletedCount++;
+                            console.log(`Auto-deleted ${item.name} (sold out since ${item.soldOutAt})`);
+                        } catch (error) {
+                            console.error(`Error auto-deleting ${item.name}:`, error);
+                        }
+                    }
+                }
+            }
+        }
+        
+        if (deletedCount > 0) {
+            showMessage(`Automatically deleted ${deletedCount} item(s) that were sold out for 60+ days.`);
+        }
+    } catch (error) {
+        console.error('Error checking for old sold out items:', error);
+    }
 }
 
 // === Admin CRUD Functions ===
@@ -133,14 +213,33 @@ async function saveItem() {
     if (!isValid) return;
 
     // Collect admin status data
+    const wasSoldOut = inventory[currentCategory] && inventory[currentCategory][itemId] ? inventory[currentCategory][itemId].isSoldOut : false;
     itemData.isFeatured = document.getElementById('isFeatured').checked;
     itemData.isOnSale = document.getElementById('isOnSale').checked;
     itemData.isLowStock = document.getElementById('isLowStock').checked;
     itemData.isSoldOut = document.getElementById('isSoldOut').checked;
     itemData.staffNotes = document.getElementById('staffNotes').value || '';
     
-    // Add timestamps for tracking
+    // Track soldOutAt timestamp
     const now = new Date().toISOString();
+    if (itemData.isSoldOut && !wasSoldOut) {
+        // Item just became sold out - set timestamp
+        itemData.soldOutAt = now;
+    } else if (!itemData.isSoldOut && wasSoldOut) {
+        // Item is no longer sold out - clear timestamp
+        itemData.soldOutAt = null;
+    } else if (itemData.isSoldOut && wasSoldOut) {
+        // Item remains sold out - preserve existing timestamp
+        const existingItem = inventory[currentCategory] && inventory[currentCategory][itemId];
+        if (existingItem && existingItem.soldOutAt) {
+            itemData.soldOutAt = existingItem.soldOutAt;
+        } else {
+            // If timestamp is missing but item was sold out, set it now (backfill)
+            itemData.soldOutAt = now;
+        }
+    }
+    
+    // Add timestamps for tracking
     if (isNewItem) {
         itemData.createdAt = now;
         itemData.updatedAt = now;
@@ -321,14 +420,33 @@ async function saveQuickEdit(itemId, category) {
     const isFlower = item.category === 'Flower';
     
     // Get updated values
+    const wasSoldOut = item.isSoldOut || false;
+    const now = new Date().toISOString();
+    const isNowSoldOut = document.getElementById('quick-edit-soldOut').checked;
+    
     const updateData = {
         ...item,
         isFeatured: document.getElementById('quick-edit-featured').checked,
         isOnSale: document.getElementById('quick-edit-onSale').checked,
         isLowStock: document.getElementById('quick-edit-lowStock').checked,
-        isSoldOut: document.getElementById('quick-edit-soldOut').checked,
-        updatedAt: new Date().toISOString()
+        isSoldOut: isNowSoldOut,
+        updatedAt: now
     };
+    
+    // Track soldOutAt timestamp
+    if (isNowSoldOut && !wasSoldOut) {
+        // Item just became sold out - set timestamp
+        updateData.soldOutAt = now;
+    } else if (!isNowSoldOut && wasSoldOut) {
+        // Item is no longer sold out - clear timestamp
+        updateData.soldOutAt = null;
+    } else if (isNowSoldOut && wasSoldOut && item.soldOutAt) {
+        // Item remains sold out - preserve existing timestamp
+        updateData.soldOutAt = item.soldOutAt;
+    } else if (isNowSoldOut && wasSoldOut && !item.soldOutAt) {
+        // Item was sold out but missing timestamp - backfill it
+        updateData.soldOutAt = now;
+    }
     
     // Update prices
     if (isFlower) {
@@ -510,11 +628,30 @@ function handleLogin(event) {
         });
 }
 
-function handleLogout() {
-    window.signOut(window.auth).catch((error) => {
+/**
+ * Handle admin logout
+ * Signs out the user and redirects to the login page
+ */
+async function handleLogout() {
+    if (!window.auth) {
+        console.error("Auth not initialized");
+        window.location.href = 'login.html';
+        return;
+    }
+    
+    try {
+        await window.signOut(window.auth);
+        console.log("User signed out successfully");
+        // Redirect to login page after logout
+        window.location.href = 'login.html';
+    } catch (error) {
         console.error("Logout Error:", error);
         showMessage("Error logging out.", true);
-    });
+        // Still redirect even if there's an error
+        setTimeout(() => {
+            window.location.href = 'login.html';
+        }, 2000);
+    }
 }
 
 /**
@@ -1311,7 +1448,8 @@ function renderProductCard(item) {
     }
 
     // More compact grid card classes
-    const cardClasses = `relative flex flex-col bg-white rounded-lg shadow-md transition-transform duration-200 hover:scale-[1.02] overflow-hidden border border-sage/20 ${item.isSoldOut ? 'sold-out' : ''}`;
+    // Note: Don't apply 'sold-out' class in admin view so items can still be edited
+    const cardClasses = `relative flex flex-col bg-white rounded-lg shadow-md transition-transform duration-200 hover:scale-[1.02] overflow-hidden border border-sage/20 ${item.isSoldOut ? 'opacity-75' : ''}`;
     
     return `
         <div class="${cardClasses}">
