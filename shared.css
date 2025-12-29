@@ -145,3 +145,17 @@ body {
     display: none;
 }
 
+/* Settings Modal Styles */
+.settings-tab {
+    transition: all 0.2s;
+    cursor: pointer;
+}
+
+.settings-tab:hover {
+    color: #22352F;
+}
+
+.settings-content {
+    min-height: 300px;
+}
+

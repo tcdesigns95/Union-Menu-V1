@@ -48,10 +48,20 @@
                     Union Dispensary
                 </h1>
                 
-                <!-- Admin Logout Button -->
-                <button id="logout-button" class="admin-controls bg-red_sale text-white p-2 px-3 rounded-lg text-xs font-bold btn-brand" onclick="handleLogout()">
-                    Logout
-                </button>
+                <!-- Admin Controls -->
+                <div class="admin-controls flex items-center space-x-2">
+                    <!-- Settings Button -->
+                    <button id="settings-button" class="bg-sage text-cream p-2 px-3 rounded-lg text-sm font-bold btn-brand hover:bg-forest transition" onclick="openSettingsModal()" title="Settings">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                        </svg>
+                    </button>
+                    <!-- Sign Out Button -->
+                    <button id="logout-button" class="bg-red_sale text-white p-2 px-4 rounded-lg text-sm font-bold btn-brand hover:bg-red-600 transition" onclick="handleLogout()" title="Sign Out">
+                        Sign Out
+                    </button>
+                </div>
             </div>
 
             <!-- Category Tabs -->
@@ -164,6 +174,114 @@
             </div>
         </div>
     </div>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="modal hidden fixed inset-0 bg-forest bg-opacity-90 items-center justify-center z-50 p-4 overflow-y-auto">
+        <div class="bg-cream p-6 md:p-8 rounded-xl shadow-2xl w-full max-w-2xl my-8">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-3xl font-bold text-forest font-serif">⚙️ Settings</h2>
+                <button onclick="closeSettingsModal()" class="text-forest hover:text-red_sale transition text-2xl font-bold" title="Close">×</button>
+            </div>
+            
+            <!-- Settings Tabs -->
+            <div class="border-b border-sage/30 mb-6">
+                <div class="flex space-x-4">
+                    <button id="settings-tab-staff" onclick="switchSettingsTab('staff')" class="settings-tab px-4 py-2 font-bold border-b-2 border-transparent text-sage transition">
+                        👥 Manage Staff
+                    </button>
+                    <button id="settings-tab-password" onclick="switchSettingsTab('password')" class="settings-tab px-4 py-2 font-bold border-b-2 border-transparent text-sage transition">
+                        🔒 Change Password
+                    </button>
+                    <!-- Add more tabs here in the future -->
+                </div>
+            </div>
+            
+            <!-- Staff Management Tab Content -->
+            <div id="settings-content-staff" class="settings-content">
+                <!-- Add New Staff Form -->
+                <div class="bg-white p-4 rounded-lg border border-sage/30 mb-6">
+                    <h3 class="text-xl font-bold text-forest mb-4 font-serif">Add New Staff Member</h3>
+                    <form id="add-staff-form" class="space-y-4" onsubmit="handleAddStaff(event)">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label for="staff-email" class="block text-sm font-bold text-forest mb-1">Email Address *</label>
+                                <input type="email" id="staff-email" required class="w-full p-2 border-2 border-sage/50 rounded-xl bg-white text-forest focus:outline-none focus:ring-2 focus:ring-sage font-serif" placeholder="staff@uniondispensary.com">
+                            </div>
+                            <div>
+                                <label for="staff-password" class="block text-sm font-bold text-forest mb-1">Password *</label>
+                                <input type="password" id="staff-password" required minlength="6" class="w-full p-2 border-2 border-sage/50 rounded-xl bg-white text-forest focus:outline-none focus:ring-2 focus:ring-sage font-serif" placeholder="Minimum 6 characters">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label for="staff-role" class="block text-sm font-bold text-forest mb-1">Role *</label>
+                                <select id="staff-role" required class="w-full p-2 border-2 border-sage/50 rounded-xl bg-white text-forest focus:outline-none focus:ring-2 focus:ring-sage font-serif">
+                                    <option value="admin">Admin (Full Access)</option>
+                                    <option value="budtender">Budtender (View & Mark Sold)</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label for="staff-name" class="block text-sm font-bold text-forest mb-1">Full Name</label>
+                                <input type="text" id="staff-name" class="w-full p-2 border-2 border-sage/50 rounded-xl bg-white text-forest focus:outline-none focus:ring-2 focus:ring-sage font-serif" placeholder="John Doe">
+                            </div>
+                        </div>
+                        <button type="submit" class="w-full bg-forest text-cream p-3 rounded-lg font-bold hover:bg-sage transition btn-brand">
+                            Create Staff Account
+                        </button>
+                        <div class="mt-3 p-3 bg-sage/10 border border-sage/30 rounded-lg">
+                            <p class="text-xs text-forest font-semibold mb-1">📝 Quick Instructions:</p>
+                            <p class="text-xs text-sage">
+                                If the button above doesn't work (Cloud Function not deployed), create users manually in 
+                                <a href="https://console.firebase.google.com/project/union-live-menu/authentication/users" target="_blank" class="underline font-bold">Firebase Console</a>. 
+                                They'll get Admin role on first login.
+                            </p>
+                        </div>
+                    </form>
+                    <div id="staff-form-message" class="mt-3 text-sm font-semibold text-center"></div>
+                </div>
+                
+                <!-- Staff List -->
+                <div class="bg-white p-4 rounded-lg border border-sage/30">
+                    <h3 class="text-xl font-bold text-forest mb-4 font-serif">Current Staff</h3>
+                    <div id="staff-list" class="space-y-2 max-h-96 overflow-y-auto">
+                        <p class="text-sage text-sm">Loading staff members...</p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Change Password Tab Content -->
+            <div id="settings-content-password" class="settings-content hidden">
+                <div class="bg-white p-4 rounded-lg border border-sage/30">
+                    <h3 class="text-xl font-bold text-forest mb-4 font-serif">Change Your Password</h3>
+                    <form id="change-password-form" class="space-y-4" onsubmit="handleChangePassword(event)">
+                        <div>
+                            <label for="current-password" class="block text-sm font-bold text-forest mb-1">Current Password *</label>
+                            <input type="password" id="current-password" required class="w-full p-2 border-2 border-sage/50 rounded-xl bg-white text-forest focus:outline-none focus:ring-2 focus:ring-sage font-serif" placeholder="Enter your current password">
+                        </div>
+                        <div>
+                            <label for="new-password" class="block text-sm font-bold text-forest mb-1">New Password *</label>
+                            <input type="password" id="new-password" required minlength="6" class="w-full p-2 border-2 border-sage/50 rounded-xl bg-white text-forest focus:outline-none focus:ring-2 focus:ring-sage font-serif" placeholder="Minimum 6 characters">
+                        </div>
+                        <div>
+                            <label for="confirm-password" class="block text-sm font-bold text-forest mb-1">Confirm New Password *</label>
+                            <input type="password" id="confirm-password" required minlength="6" class="w-full p-2 border-2 border-sage/50 rounded-xl bg-white text-forest focus:outline-none focus:ring-2 focus:ring-sage font-serif" placeholder="Re-enter new password">
+                        </div>
+                        <button type="submit" class="w-full bg-forest text-cream p-3 rounded-lg font-bold hover:bg-sage transition btn-brand">
+                            Update Password
+                        </button>
+                    </form>
+                    <div id="password-form-message" class="mt-3 text-sm font-semibold text-center"></div>
+                </div>
+            </div>
+            
+            <!-- Close Button -->
+            <div class="mt-6 flex justify-end">
+                <button onclick="closeSettingsModal()" class="bg-sage text-cream px-6 py-2 rounded-lg font-bold hover:bg-forest transition btn-brand">
+                    Close
+                </button>
+            </div>
+        </div>
+    </div>
     
     <!-- Global Message/Toast Notification -->
     <div id="message-box" class="hidden fixed top-24 right-4 bg-forest text-cream p-4 rounded-lg shadow-xl opacity-0 transition-all duration-300 z-50 font-serif min-w-[200px]"></div>
@@ -228,7 +346,7 @@
                 }
 
                 // Monitor auth state - redirect to login if not authenticated
-                window.onAuthStateChanged(window.auth, (user) => {
+                window.onAuthStateChanged(window.auth, async (user) => {
                     if (user) {
                         // User is authenticated
                         window.userId = user.uid;
@@ -239,6 +357,9 @@
                         if (loginModal) {
                             loginModal.style.display = 'none';
                         }
+                        
+                        // Load user role from Firestore
+                        await window.loadUserRole();
                         
                         // Show admin UI
                         window.toggleAdminUI(true);

@@ -84,7 +84,9 @@ async function initializeFirebase() {
             signOut, 
             onAuthStateChanged,
             signInAnonymously,
-            signInWithCustomToken
+            signInWithCustomToken,
+            sendPasswordResetEmail,
+            updatePassword
         } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js");
         
         window.signInWithEmailAndPassword = signInWithEmailAndPassword;
@@ -92,25 +94,31 @@ async function initializeFirebase() {
         window.onAuthStateChanged = onAuthStateChanged;
         window.signInAnonymously = signInAnonymously;
         window.signInWithCustomToken = signInWithCustomToken;
+        window.sendPasswordResetEmail = sendPasswordResetEmail;
+        window.updatePassword = updatePassword;
         
         // Expose Firestore functions
         const { 
             collection, 
             onSnapshot, 
             doc, 
+            getDoc,
             setDoc, 
             deleteDoc, 
             query, 
-            writeBatch 
+            writeBatch,
+            getDocs
         } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js");
         
         window.collection = collection;
         window.onSnapshot = onSnapshot;
         window.doc = doc;
+        window.getDoc = getDoc;
         window.setDoc = setDoc;
         window.deleteDoc = deleteDoc;
         window.query = query;
         window.writeBatch = writeBatch;
+        window.getDocs = getDocs;
         
         console.log("Firebase initialized successfully.");
         return true;

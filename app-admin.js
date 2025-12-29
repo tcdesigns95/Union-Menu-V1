@@ -9,6 +9,8 @@
 let inventory = {}; 
 let currentCategory = 'Flower';
 let isAdmin = false;
+let userRole = null; // 'admin' or 'budtender' - loaded from Firestore
+let currentUserId = null; // Current authenticated user's UID
 let currentSearchQuery = '';
 let currentTypeFilter = 'All'; 
 let currentSortBy = 'name'; 
@@ -81,7 +83,7 @@ function setupDataListeners() {
             renderMenu();
             
             // Check for items sold out 60+ days and auto-delete them
-            if (isAdmin) {
+            if (isAdmin && userRole === 'admin') {
                 checkAndDeleteOldSoldOutItems();
             }
             
@@ -98,6 +100,86 @@ function setupDataListeners() {
             }
         });
     });
+}
+
+/**
+ * Load current user's role from Firestore
+ * Checks the 'users' collection for the authenticated user's role
+ */
+async function loadUserRole() {
+    if (!window.auth || !window.auth.currentUser) {
+        console.warn("No authenticated user to load role for");
+        return null;
+    }
+    
+    currentUserId = window.auth.currentUser.uid;
+    const userEmail = window.auth.currentUser.email;
+    
+    try {
+        const userDocRef = window.doc(window.db, `artifacts/${appId}/public/users/${currentUserId}`);
+        const userDoc = await window.getDoc(userDocRef);
+        
+        if (userDoc.exists()) {
+            const userData = userDoc.data();
+            userRole = userData.role || 'budtender'; // Default to budtender if role not set
+            console.log(`User role loaded: ${userRole} for ${userEmail}`);
+            
+            // Update UI based on role
+            applyRoleBasedUI();
+            return userRole;
+        } else {
+            // User doesn't exist in users collection - create entry with budtender role as default
+            console.log("User not found in users collection, creating entry with budtender role...");
+            await window.setDoc(userDocRef, {
+                email: userEmail,
+                role: 'budtender', // All new users default to budtender (admin can promote to admin if needed)
+                name: userEmail.split('@')[0],
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+            });
+            userRole = 'budtender';
+            applyRoleBasedUI();
+            return userRole;
+        }
+        } catch (error) {
+        console.error("Error loading user role:", error);
+        // Default to budtender if there's an error (safer default)
+        userRole = 'budtender';
+        applyRoleBasedUI();
+        return userRole;
+    }
+}
+
+/**
+ * Apply role-based UI restrictions
+ * Hides/shows features based on user role
+ */
+function applyRoleBasedUI() {
+    const settingsButton = document.getElementById('settings-button');
+    const addItemContainer = document.getElementById('add-item-container');
+    
+    // Settings button is available to all authenticated users (for password change)
+    // Staff management tab is admin-only (handled in openSettingsModal)
+    if (settingsButton) {
+        if (userRole) {
+            settingsButton.style.visibility = 'visible';
+            settingsButton.style.display = ''; // Let parent flex container handle display
+        } else {
+            settingsButton.style.display = 'none';
+        }
+    }
+    
+    // Only admins can add items
+    if (addItemContainer) {
+        if (userRole === 'admin') {
+            addItemContainer.style.display = 'block';
+        } else {
+            addItemContainer.style.display = 'none';
+        }
+    }
+    
+    // Re-render menu to apply role-based button restrictions
+    renderMenu();
 }
 
 /**
@@ -177,6 +259,12 @@ async function checkAndDeleteOldSoldOutItems() {
  * Called when admin submits the add/edit product form
  */
 async function saveItem() {
+    // Check role permissions
+    if (userRole === 'budtender') {
+        showMessage('Budtenders cannot add or edit items. Only admins can modify inventory.', true);
+        return;
+    }
+    
     const form = document.getElementById('admin-form');
     const itemId = document.getElementById('edit-item-id').value;
     const isNewItem = !itemId;
@@ -270,6 +358,12 @@ async function saveItem() {
  * @param {string} category - Product category (determines collection path)
  */
 async function handleDeleteItem(itemId, category) {
+    // Check role permissions
+    if (userRole !== 'admin') {
+        showMessage('Only admins can delete items.', true);
+        return;
+    }
+    
     if (!confirm(`Are you sure you want to delete this item?\n\n${inventory[category][itemId].name}\n\nThis action cannot be undone.`)) {
         return;
     }
@@ -291,6 +385,12 @@ async function handleDeleteItem(itemId, category) {
  * @param {string} category - Product category
  */
 async function handleDuplicateItem(itemId, category) {
+    // Check role permissions
+    if (userRole !== 'admin') {
+        showMessage('Only admins can duplicate items.', true);
+        return;
+    }
+    
     const item = inventory[category] ? inventory[category][itemId] : null;
     if (!item) {
         showMessage("Error: Could not find item to duplicate.", true);
@@ -448,7 +548,7 @@ async function saveQuickEdit(itemId, category) {
         updateData.soldOutAt = now;
     }
     
-    // Update prices
+    // Update prices (budtenders can now update prices via quick edit)
     if (isFlower) {
         const price1g = document.getElementById('quick-edit-price-1g').value.trim();
         const price35g = document.getElementById('quick-edit-price-35g').value.trim();
@@ -584,6 +684,12 @@ function handleAddItemClick() {
 }
 
 function handleEditItem(itemId, category) {
+    // Check role permissions - budtenders can use quick edit, but not full edit
+    if (userRole === 'budtender') {
+        showMessage('Budtenders can use Quick Edit (⚡) for price and status changes. Full Edit is admin-only.', true);
+        return;
+    }
+    
     const item = inventory[category] ? inventory[category][itemId] : null;
     if (!item) {
         showMessage("Error: Could not find item to edit.", true);
@@ -666,7 +772,15 @@ function toggleAdminUI(isLoggedIn) {
     const loadingIndicator = document.getElementById('loading-indicator');
     
     if (isLoggedIn) {
-        adminElements.forEach(el => el.style.display = 'block');
+        // Set display appropriately - flex containers need 'flex', others get 'block'
+        adminElements.forEach(el => {
+            // Check if it's a flex container (has flex class)
+            if (el.classList.contains('flex')) {
+                el.style.display = 'flex';
+            } else {
+                el.style.display = 'block';
+            }
+        });
         if (loginModal) loginModal.style.display = 'none';
         if (loadingIndicator) loadingIndicator.textContent = 'Loading menu data...';
     } else {
@@ -1434,17 +1548,27 @@ function renderProductCard(item) {
          topRightBadges = `<div class="flex space-x-1 absolute top-2 right-2 z-5">${badges.join('')}</div>`;
     }
 
-    // Admin buttons
+    // Admin buttons - role-based access
     let adminButtons = '';
     if (isAdmin) {
-        adminButtons = `
-            <div class="p-1.5 md:p-2 bg-forest/10 flex flex-wrap justify-end gap-1.5 md:gap-2">
-                <button class="bg-sage text-cream px-2 py-1 md:px-2.5 md:py-1.5 rounded-lg text-[10px] md:text-xs font-bold btn-brand" onclick="event.stopPropagation(); handleQuickEdit('${item.id}', '${item.category}')" title="Quick Edit">⚡ Quick</button>
-                <button class="bg-forest text-cream px-2 py-1 md:px-2.5 md:py-1.5 rounded-lg text-[10px] md:text-xs font-bold btn-brand" onclick="event.stopPropagation(); handleEditItem('${item.id}', '${item.category}')" title="Full Edit">Edit</button>
-                <button class="bg-orange_low text-white px-2 py-1 md:px-2.5 md:py-1.5 rounded-lg text-[10px] md:text-xs font-bold btn-brand" onclick="event.stopPropagation(); handleDuplicateItem('${item.id}', '${item.category}')" title="Duplicate">Copy</button>
-                <button class="bg-red_sale text-white px-2 py-1 md:px-2.5 md:py-1.5 rounded-lg text-[10px] md:text-xs font-bold btn-brand" onclick="event.stopPropagation(); handleDeleteItem('${item.id}', '${item.category}')" title="Delete">Del</button>
-            </div>
-        `;
+        // Budtenders can use quick edit (all fields), admins have full access including edit/delete
+        if (userRole === 'budtender') {
+            adminButtons = `
+                <div class="p-1.5 md:p-2 bg-forest/10 flex flex-wrap justify-end gap-1.5 md:gap-2">
+                    <button class="bg-sage text-cream px-2 py-1 md:px-2.5 md:py-1.5 rounded-lg text-[10px] md:text-xs font-bold btn-brand" onclick="event.stopPropagation(); handleQuickEdit('${item.id}', '${item.category}')" title="Quick Edit">⚡ Quick</button>
+                </div>
+            `;
+        } else {
+            // Admin has full access
+            adminButtons = `
+                <div class="p-1.5 md:p-2 bg-forest/10 flex flex-wrap justify-end gap-1.5 md:gap-2">
+                    <button class="bg-sage text-cream px-2 py-1 md:px-2.5 md:py-1.5 rounded-lg text-[10px] md:text-xs font-bold btn-brand" onclick="event.stopPropagation(); handleQuickEdit('${item.id}', '${item.category}')" title="Quick Edit">⚡ Quick</button>
+                    <button class="bg-forest text-cream px-2 py-1 md:px-2.5 md:py-1.5 rounded-lg text-[10px] md:text-xs font-bold btn-brand" onclick="event.stopPropagation(); handleEditItem('${item.id}', '${item.category}')" title="Full Edit">Edit</button>
+                    <button class="bg-orange_low text-white px-2 py-1 md:px-2.5 md:py-1.5 rounded-lg text-[10px] md:text-xs font-bold btn-brand" onclick="event.stopPropagation(); handleDuplicateItem('${item.id}', '${item.category}')" title="Duplicate">Copy</button>
+                    <button class="bg-red_sale text-white px-2 py-1 md:px-2.5 md:py-1.5 rounded-lg text-[10px] md:text-xs font-bold btn-brand" onclick="event.stopPropagation(); handleDeleteItem('${item.id}', '${item.category}')" title="Delete">Del</button>
+                </div>
+            `;
+        }
     }
 
     // More compact grid card classes
@@ -1504,17 +1628,27 @@ function renderProductListItem(item) {
         statusBadge = '<span class="bg-orange_low text-white text-[9px] font-bold px-1.5 py-0.5 rounded">LOW</span>';
     }
     
-    // Admin buttons for list view (compact)
+    // Admin buttons for list view (compact) - role-based access
     let adminButtonsList = '';
     if (isAdmin) {
-        adminButtonsList = `
-            <div class="flex-shrink-0 flex space-x-1 ml-2">
-                <button class="bg-sage text-cream px-2 py-1 rounded text-[9px] font-bold btn-brand" onclick="event.stopPropagation(); handleQuickEdit('${item.id}', '${item.category}')" title="Quick Edit">⚡</button>
-                <button class="bg-forest text-cream px-2 py-1 rounded text-[9px] font-bold btn-brand" onclick="event.stopPropagation(); handleEditItem('${item.id}', '${item.category}')" title="Edit">✏️</button>
-                <button class="bg-orange_low text-white px-2 py-1 rounded text-[9px] font-bold btn-brand" onclick="event.stopPropagation(); handleDuplicateItem('${item.id}', '${item.category}')" title="Duplicate">📋</button>
-                <button class="bg-red_sale text-white px-2 py-1 rounded text-[9px] font-bold btn-brand" onclick="event.stopPropagation(); handleDeleteItem('${item.id}', '${item.category}')" title="Delete">🗑️</button>
-            </div>
-        `;
+        if (userRole === 'budtender') {
+            // Budtenders can use quick edit (all fields)
+            adminButtonsList = `
+                <div class="flex-shrink-0 flex space-x-1 ml-2">
+                    <button class="bg-sage text-cream px-2 py-1 rounded text-[9px] font-bold btn-brand" onclick="event.stopPropagation(); handleQuickEdit('${item.id}', '${item.category}')" title="Quick Edit">⚡</button>
+                </div>
+            `;
+        } else {
+            // Admin has full access
+            adminButtonsList = `
+                <div class="flex-shrink-0 flex space-x-1 ml-2">
+                    <button class="bg-sage text-cream px-2 py-1 rounded text-[9px] font-bold btn-brand" onclick="event.stopPropagation(); handleQuickEdit('${item.id}', '${item.category}')" title="Quick Edit">⚡</button>
+                    <button class="bg-forest text-cream px-2 py-1 rounded text-[9px] font-bold btn-brand" onclick="event.stopPropagation(); handleEditItem('${item.id}', '${item.category}')" title="Edit">✏️</button>
+                    <button class="bg-orange_low text-white px-2 py-1 rounded text-[9px] font-bold btn-brand" onclick="event.stopPropagation(); handleDuplicateItem('${item.id}', '${item.category}')" title="Duplicate">📋</button>
+                    <button class="bg-red_sale text-white px-2 py-1 rounded text-[9px] font-bold btn-brand" onclick="event.stopPropagation(); handleDeleteItem('${item.id}', '${item.category}')" title="Delete">🗑️</button>
+                </div>
+            `;
+        }
     }
     
     // List item wrapper for grid layout (2 columns on tablet)
@@ -1581,6 +1715,505 @@ function setAppId(newAppId) {
 }
 window.setAppId = setAppId;
 
+// === Settings Modal Functions ===
+
+/**
+ * Open the settings modal
+ */
+function openSettingsModal() {
+    const modal = document.getElementById('settings-modal');
+    if (modal) {
+        modal.classList.remove('hidden');
+        modal.style.display = 'flex';
+        
+        // Switch to appropriate tab based on role
+        if (userRole === 'admin') {
+            switchSettingsTab('staff');
+            // Load staff list when opening (admin only)
+            loadStaffList();
+        } else {
+            // Budtenders can access password change, but not staff management
+            switchSettingsTab('password');
+            // Hide staff tab for non-admins
+            const staffTab = document.getElementById('settings-tab-staff');
+            if (staffTab) {
+                staffTab.style.display = 'none';
+            }
+        }
+    }
+}
+
+/**
+ * Close the settings modal
+ */
+function closeSettingsModal() {
+    const modal = document.getElementById('settings-modal');
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.style.display = 'none';
+    }
+}
+
+/**
+ * Switch between settings tabs
+ */
+function switchSettingsTab(tabName) {
+    // Hide all tab contents
+    const contents = document.querySelectorAll('.settings-content');
+    contents.forEach(content => {
+        content.classList.add('hidden');
+    });
+    
+    // Remove active class from all tabs
+    const tabs = document.querySelectorAll('.settings-tab');
+    tabs.forEach(tab => {
+        tab.classList.remove('border-forest', 'text-forest');
+        tab.classList.add('border-transparent', 'text-sage');
+    });
+    
+    // Show selected tab content
+    const selectedContent = document.getElementById(`settings-content-${tabName}`);
+    if (selectedContent) {
+        selectedContent.classList.remove('hidden');
+    }
+    
+    // Activate selected tab
+    const selectedTab = document.getElementById(`settings-tab-${tabName}`);
+    if (selectedTab) {
+        selectedTab.classList.add('border-forest', 'text-forest');
+        selectedTab.classList.remove('border-transparent', 'text-sage');
+    }
+}
+
+/**
+ * Handle password change form submission
+ * Allows users to change their own password
+ */
+async function handleChangePassword(event) {
+    event.preventDefault();
+    
+    const currentPassword = document.getElementById('current-password').value;
+    const newPassword = document.getElementById('new-password').value;
+    const confirmPassword = document.getElementById('confirm-password').value;
+    const messageDiv = document.getElementById('password-form-message');
+    
+    // Clear previous messages
+    messageDiv.textContent = '';
+    messageDiv.className = 'mt-3 text-sm font-semibold text-center';
+    
+    // Validate passwords match
+    if (newPassword !== confirmPassword) {
+        messageDiv.textContent = 'New passwords do not match.';
+        messageDiv.classList.add('text-red_sale');
+        return;
+    }
+    
+    // Validate password length
+    if (newPassword.length < 6) {
+        messageDiv.textContent = 'New password must be at least 6 characters.';
+        messageDiv.classList.add('text-red_sale');
+        return;
+    }
+    
+    // Validate current password is provided
+    if (!currentPassword) {
+        messageDiv.textContent = 'Please enter your current password.';
+        messageDiv.classList.add('text-red_sale');
+        return;
+    }
+    
+    if (!window.auth || !window.auth.currentUser) {
+        messageDiv.textContent = 'You must be logged in to change your password.';
+        messageDiv.classList.add('text-red_sale');
+        return;
+    }
+    
+    const user = window.auth.currentUser;
+    const userEmail = user.email;
+    
+    // Re-authenticate user with current password before allowing password change
+    try {
+        messageDiv.textContent = 'Verifying current password...';
+        messageDiv.classList.add('text-sage');
+        
+        // Re-authenticate user with current password before allowing password change
+        const { EmailAuthProvider } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js");
+        const credential = EmailAuthProvider.credential(userEmail, currentPassword);
+        
+        // Re-authenticate (required for password changes)
+        await user.reauthenticateWithCredential(credential);
+        
+        // Update password
+        messageDiv.textContent = 'Updating password...';
+        await window.updatePassword(user, newPassword);
+        
+        messageDiv.textContent = 'Password updated successfully!';
+        messageDiv.classList.add('text-forest');
+        
+        // Clear form
+        document.getElementById('change-password-form').reset();
+        
+    } catch (error) {
+        console.error('Error changing password:', error);
+        let errorMessage = 'Failed to update password. ';
+        
+        switch (error.code) {
+            case 'auth/wrong-password':
+                errorMessage = 'Current password is incorrect.';
+                break;
+            case 'auth/weak-password':
+                errorMessage = 'New password is too weak. Please use a stronger password.';
+                break;
+            case 'auth/requires-recent-login':
+                errorMessage = 'Please log out and log back in, then try again.';
+                break;
+            default:
+                errorMessage = error.message || 'An error occurred. Please try again.';
+        }
+        
+        messageDiv.textContent = errorMessage;
+        messageDiv.classList.add('text-red_sale');
+    }
+}
+
+// === Staff Management Functions ===
+
+/**
+ * Handle form submission to create new staff member
+ * Uses Firebase Admin SDK via Cloud Function for secure user creation
+ */
+async function handleAddStaff(event) {
+    event.preventDefault();
+    
+    // Check if user is admin
+    if (userRole !== 'admin') {
+        showMessage('Only admins can create staff accounts.', true);
+        return;
+    }
+    
+    const email = document.getElementById('staff-email').value.trim();
+    const password = document.getElementById('staff-password').value;
+    const role = document.getElementById('staff-role').value;
+    const name = document.getElementById('staff-name').value.trim() || email.split('@')[0];
+    const messageDiv = document.getElementById('staff-form-message');
+    
+    if (!email || !password) {
+        messageDiv.textContent = 'Please fill in all required fields.';
+        messageDiv.className = 'mt-3 text-sm font-semibold text-center text-red_sale';
+        return;
+    }
+    
+    if (password.length < 6) {
+        messageDiv.textContent = 'Password must be at least 6 characters.';
+        messageDiv.className = 'mt-3 text-sm font-semibold text-center text-red_sale';
+        return;
+    }
+    
+    messageDiv.textContent = 'Creating staff account...';
+    messageDiv.className = 'mt-3 text-sm font-semibold text-center text-sage';
+    
+    try {
+        // Call Cloud Function to create user securely
+        // If Cloud Function is not set up, we'll use a client-side workaround
+        const createUserFunction = `https://us-central1-${appId}.cloudfunctions.net/createStaffUser`;
+        
+        // Get current user's ID token for authentication
+        const idToken = await window.auth.currentUser.getIdToken();
+        
+        const response = await fetch(createUserFunction, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${idToken}`
+            },
+            body: JSON.stringify({
+                email: email,
+                password: password,
+                role: role,
+                name: name
+            })
+        });
+        
+        if (!response.ok) {
+            // If Cloud Function doesn't exist, provide instructions
+            if (response.status === 404 || response.status === 0 || error.name === 'TypeError') {
+                messageDiv.innerHTML = `
+                    <div class="bg-orange_low/20 border-2 border-orange_low p-3 rounded-lg text-left">
+                        <p class="font-bold text-forest mb-2">⚠️ Cloud Function Not Available</p>
+                        <p class="text-sm text-forest mb-3"><strong>To add staff members:</strong></p>
+                        <ol class="text-sm text-forest list-decimal list-inside space-y-1 mb-3">
+                            <li>Go to <a href="https://console.firebase.google.com/" target="_blank" class="text-sage underline">Firebase Console</a></li>
+                            <li>Select your project: <strong>union-live-menu</strong></li>
+                            <li>Go to <strong>Authentication</strong> > <strong>Users</strong></li>
+                            <li>Click <strong>"Add user"</strong></li>
+                            <li>Enter email and password, then click "Add user"</li>
+                            <li>The user will be created with <strong>Admin</strong> role on first login</li>
+                        </ol>
+                        <p class="text-xs text-sage">💡 To enable in-app staff creation, deploy the Cloud Function (see CLOUD_FUNCTION_SETUP.md)</p>
+                    </div>
+                `;
+                messageDiv.className = 'mt-3 text-sm font-semibold text-center';
+                return;
+            } else {
+                const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+                throw new Error(errorData.error || 'Failed to create user');
+            }
+        } else {
+            const result = await response.json();
+            console.log('Staff user created:', result);
+            
+            // Store user data in Firestore
+            const userDocRef = window.doc(window.db, `artifacts/${appId}/public/users/${result.uid}`);
+            await window.setDoc(userDocRef, {
+                email: email,
+                role: role,
+                name: name,
+                createdBy: currentUserId,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+            });
+            
+            messageDiv.textContent = `Staff account created successfully! Email: ${email}`;
+            messageDiv.className = 'mt-3 text-sm font-semibold text-center text-forest';
+            
+            // Reset form
+            document.getElementById('add-staff-form').reset();
+            
+            // Reload staff list
+            loadStaffList();
+        }
+    } catch (error) {
+        console.error('Error creating staff user:', error);
+        
+        // Handle network errors (Cloud Function not available)
+        if (error.message.includes('fetch') || error.message.includes('Failed to fetch') || error.name === 'TypeError') {
+            messageDiv.innerHTML = `
+                <div class="bg-orange_low/20 border-2 border-orange_low p-3 rounded-lg text-left">
+                    <p class="font-bold text-forest mb-2">⚠️ Cloud Function Not Available</p>
+                    <p class="text-sm text-forest mb-3"><strong>To add staff members manually:</strong></p>
+                    <ol class="text-sm text-forest list-decimal list-inside space-y-1 mb-3">
+                        <li>Go to <a href="https://console.firebase.google.com/" target="_blank" class="text-sage underline">Firebase Console</a></li>
+                        <li>Select your project: <strong>union-live-menu</strong></li>
+                        <li>Go to <strong>Authentication</strong> > <strong>Users</strong></li>
+                        <li>Click <strong>"Add user"</strong></li>
+                        <li>Enter email and password, then click "Add user"</li>
+                        <li>The user will be created with <strong>Admin</strong> role on first login</li>
+                    </ol>
+                    <p class="text-xs text-sage">💡 To enable in-app staff creation, deploy the Cloud Function (see CLOUD_FUNCTION_SETUP.md)</p>
+                </div>
+            `;
+            messageDiv.className = 'mt-3 text-sm font-semibold text-center';
+        } else {
+            messageDiv.textContent = `Error: ${error.message}`;
+            messageDiv.className = 'mt-3 text-sm font-semibold text-center text-red_sale';
+        }
+    }
+}
+
+/**
+ * Client-side user creation (fallback if Cloud Function not available)
+ * NOTE: This requires the current user to have elevated permissions
+ * For production, use Cloud Functions instead
+ */
+async function createStaffUserClientSide(email, password, role, name) {
+    // This is a workaround - in production, use Cloud Functions
+    // For now, we'll create the user in Firestore and let them set up their Firebase Auth account manually
+    // Or use a simpler approach: create a document that triggers a Cloud Function
+    
+    // Store pending user creation request
+    const pendingUserRef = window.doc(window.collection(window.db, `artifacts/${appId}/public/pendingUsers`));
+    await window.setDoc(pendingUserRef, {
+        email: email,
+        password: password, // In production, this should be handled server-side only
+        role: role,
+        name: name,
+        createdBy: currentUserId,
+        createdAt: new Date().toISOString(),
+        status: 'pending'
+    });
+    
+    showMessage('User creation request submitted. Please set up the Cloud Function or create the user manually in Firebase Console.', false);
+}
+
+/**
+ * Load and display the list of staff members
+ */
+async function loadStaffList() {
+    const staffListDiv = document.getElementById('staff-list');
+    if (!staffListDiv) return;
+    
+    staffListDiv.innerHTML = '<p class="text-sage text-sm">Loading...</p>';
+    
+    try {
+        const usersCollection = window.collection(window.db, `artifacts/${appId}/public/users`);
+        const usersSnapshot = await window.getDocs(usersCollection);
+        
+        if (usersSnapshot.empty) {
+            staffListDiv.innerHTML = '<p class="text-sage text-sm">No staff members found.</p>';
+            return;
+        }
+        
+        let html = '<div class="space-y-2">';
+        usersSnapshot.forEach(doc => {
+            const userData = doc.data();
+            const roleBadge = userData.role === 'admin' 
+                ? '<span class="bg-red_sale text-white px-2 py-1 rounded text-xs font-bold">Admin</span>'
+                : '<span class="bg-sage text-cream px-2 py-1 rounded text-xs font-bold">Budtender</span>';
+            
+            html += `
+                <div class="flex items-center justify-between p-3 bg-white rounded-lg border border-sage/20">
+                    <div class="flex-1">
+                        <div class="font-bold text-forest">${userData.name || userData.email}</div>
+                        <div class="text-sm text-sage">${userData.email}</div>
+                        <div class="flex items-center space-x-2 mt-1">
+                            ${userRole === 'admin' && userData.email !== window.auth.currentUser.email
+                                ? `<select onchange="changeUserRole('${doc.id}', '${userData.email}', this.value)" class="text-xs border border-sage/50 rounded px-2 py-1 bg-white text-forest focus:outline-none focus:ring-2 focus:ring-sage font-serif">
+                                    <option value="admin" ${userData.role === 'admin' ? 'selected' : ''}>Admin</option>
+                                    <option value="budtender" ${userData.role === 'budtender' ? 'selected' : ''}>Budtender</option>
+                                </select>`
+                                : `<div class="text-xs text-forest/70">
+                                    Role: <span class="font-semibold capitalize">${userData.role || 'Unknown'}</span>
+                                </div>`
+                            }
+                        </div>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        ${roleBadge}
+                        ${userRole === 'admin' && userData.email !== window.auth.currentUser.email 
+                            ? `<button onclick="sendPasswordResetToUser('${userData.email}')" class="bg-sage text-cream px-2 py-1 rounded text-xs font-bold btn-brand" title="Send Password Reset Email">📧 Reset</button>`
+                            : ''}
+                        ${userRole === 'admin' && userData.email !== window.auth.currentUser.email 
+                            ? `<button onclick="deleteStaffUser('${doc.id}', '${userData.email}')" class="bg-red_sale text-white px-2 py-1 rounded text-xs font-bold btn-brand" title="Delete User">🗑️</button>`
+                            : ''}
+                    </div>
+                </div>
+            `;
+        });
+        html += '</div>';
+        staffListDiv.innerHTML = html;
+    } catch (error) {
+        console.error('Error loading staff list:', error);
+        staffListDiv.innerHTML = `
+            <div class="bg-red_sale/10 border border-red_sale/50 p-3 rounded-lg">
+                <p class="text-red_sale text-sm font-bold mb-2">Error loading staff list</p>
+                <p class="text-xs text-forest">${error.message || 'Unable to connect to Firestore. Please check your Firebase connection.'}</p>
+                <button onclick="loadStaffList()" class="mt-2 bg-sage text-cream px-3 py-1 rounded text-xs font-bold hover:bg-forest transition">
+                    🔄 Retry
+                </button>
+            </div>
+        `;
+    }
+}
+
+/**
+ * Change a user's role (Admin only)
+ * Allows admin to promote/demote users between admin and budtender roles
+ */
+async function changeUserRole(userId, userEmail, newRole) {
+    if (userRole !== 'admin') {
+        showMessage('Only admins can change user roles.', true);
+        return;
+    }
+    
+    if (!['admin', 'budtender'].includes(newRole)) {
+        showMessage('Invalid role specified.', true);
+        return;
+    }
+    
+    // Don't allow changing your own role
+    if (userEmail === window.auth.currentUser.email) {
+        showMessage('You cannot change your own role.', true);
+        // Reload the staff list to reset the dropdown
+        loadStaffList();
+        return;
+    }
+    
+    try {
+        const userDocRef = window.doc(window.db, `artifacts/${appId}/public/users/${userId}`);
+        const userDoc = await window.getDoc(userDocRef);
+        
+        if (!userDoc.exists()) {
+            showMessage('User not found in database.', true);
+            return;
+        }
+        
+        const currentRole = userDoc.data().role;
+        if (currentRole === newRole) {
+            // Role hasn't changed, no need to update
+            return;
+        }
+        
+        // Update the role
+        await window.setDoc(userDocRef, {
+            ...userDoc.data(),
+            role: newRole,
+            updatedAt: new Date().toISOString()
+        }, { merge: true });
+        
+        showMessage(`${userEmail} role changed from ${currentRole} to ${newRole}.`);
+        
+        // Reload staff list to show updated role
+        loadStaffList();
+        
+        // If the user is currently logged in, show a message that they need to refresh
+        // (We can't force refresh their session, but the change will take effect on next login)
+        
+    } catch (error) {
+        console.error('Error changing user role:', error);
+        showMessage(`Error changing user role: ${error.message}`, true);
+        // Reload staff list to reset the dropdown
+        loadStaffList();
+    }
+}
+
+/**
+ * Send password reset email to a user (Admin only)
+ * Allows admin to send password reset email so user can set their own password
+ */
+async function sendPasswordResetToUser(userEmail) {
+    if (userRole !== 'admin') {
+        showMessage('Only admins can send password reset emails.', true);
+        return;
+    }
+    
+    try {
+        await window.sendPasswordResetEmail(window.auth, userEmail);
+        showMessage(`Password reset email sent to ${userEmail}. They can now set their own password.`);
+    } catch (error) {
+        console.error('Error sending password reset email:', error);
+        showMessage(`Error sending password reset email: ${error.message}`, true);
+    }
+}
+
+/**
+ * Delete a staff user (Admin only)
+ */
+async function deleteStaffUser(userId, userEmail) {
+    if (userRole !== 'admin') {
+        showMessage('Only admins can delete users.', true);
+        return;
+    }
+    
+    if (!confirm(`Are you sure you want to delete ${userEmail}?\n\nThis will remove them from the system but they will still be able to log in until you delete their Firebase Auth account.`)) {
+        return;
+    }
+    
+    try {
+        // Remove from Firestore users collection
+        const userDocRef = window.doc(window.db, `artifacts/${appId}/public/users/${userId}`);
+        await window.deleteDoc(userDocRef);
+        
+        showMessage(`User ${userEmail} removed from staff list.`);
+        loadStaffList();
+        
+        // Note: To fully remove access, also delete their Firebase Auth account
+        // This requires Cloud Functions or Firebase Console
+    } catch (error) {
+        console.error('Error deleting user:', error);
+        showMessage('Error deleting user.', true);
+    }
+}
+
 // Export functions to window for HTML onclick handlers
 window.hideItemDetailModal = hideItemDetailModal;
 window.hideAdminModal = hideAdminModal;
@@ -1588,6 +2221,17 @@ window.hideCategorySelectModal = hideCategorySelectModal;
 window.showCategorySelectModal = showCategorySelectModal;
 window.selectCategoryForAdd = selectCategoryForAdd;
 window.saveItem = saveItem;
+window.openSettingsModal = openSettingsModal;
+window.closeSettingsModal = closeSettingsModal;
+window.switchSettingsTab = switchSettingsTab;
+window.deleteStaffUser = deleteStaffUser;
+window.sendPasswordResetToUser = sendPasswordResetToUser;
+window.changeUserRole = changeUserRole;
+window.loadStaffList = loadStaffList;
+window.handleAddStaff = handleAddStaff;
+window.handleChangePassword = handleChangePassword;
+window.loadUserRole = loadUserRole;
+window.loadStaffList = loadStaffList;
 window.handleAddItemClick = handleAddItemClick;
 window.handleEditItem = handleEditItem;
 window.handleDeleteItem = handleDeleteItem;
