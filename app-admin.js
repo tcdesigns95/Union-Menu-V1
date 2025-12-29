@@ -115,36 +115,52 @@ async function loadUserRole() {
     currentUserId = window.auth.currentUser.uid;
     const userEmail = window.auth.currentUser.email;
     
+    // List of emails that should be admins by default
+    const adminEmails = ['cthanhna@gmail.com', 'admin@union.com'];
+    const isAdminEmail = adminEmails.includes(userEmail.toLowerCase());
+    
     try {
         const userDocRef = window.doc(window.db, `artifacts/${appId}/public/users/${currentUserId}`);
         const userDoc = await window.getDoc(userDocRef);
         
         if (userDoc.exists()) {
             const userData = userDoc.data();
-            userRole = userData.role || 'budtender'; // Default to budtender if role not set
+            // If user is in admin emails list but not set as admin, update them
+            if (isAdminEmail && userData.role !== 'admin') {
+                console.log(`Updating ${userEmail} to admin role (admin email list)`);
+                await window.setDoc(userDocRef, {
+                    ...userData,
+                    role: 'admin',
+                    updatedAt: new Date().toISOString()
+                }, { merge: true });
+                userRole = 'admin';
+            } else {
+                userRole = userData.role || (isAdminEmail ? 'admin' : 'budtender');
+            }
             console.log(`User role loaded: ${userRole} for ${userEmail}`);
             
             // Update UI based on role
             applyRoleBasedUI();
             return userRole;
         } else {
-            // User doesn't exist in users collection - create entry with budtender role as default
-            console.log("User not found in users collection, creating entry with budtender role...");
+            // User doesn't exist in users collection - create entry
+            const defaultRole = isAdminEmail ? 'admin' : 'budtender';
+            console.log(`User not found in users collection, creating entry with ${defaultRole} role...`);
             await window.setDoc(userDocRef, {
                 email: userEmail,
-                role: 'budtender', // All new users default to budtender (admin can promote to admin if needed)
+                role: defaultRole,
                 name: userEmail.split('@')[0],
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString()
             });
-            userRole = 'budtender';
+            userRole = defaultRole;
             applyRoleBasedUI();
             return userRole;
         }
         } catch (error) {
         console.error("Error loading user role:", error);
-        // Default to budtender if there's an error (safer default)
-        userRole = 'budtender';
+        // Default based on email list if there's an error
+        userRole = isAdminEmail ? 'admin' : 'budtender';
         applyRoleBasedUI();
         return userRole;
     }
