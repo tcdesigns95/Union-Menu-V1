@@ -284,14 +284,20 @@ async function saveItem() {
     const form = document.getElementById('admin-form');
     const itemId = document.getElementById('edit-item-id').value;
     const isNewItem = !itemId;
-    const docId = isNewItem ? crypto.randomUUID() : itemId; 
-    const path = getCollectionPath(currentCategory, appId);
+    const originalCategory = document.getElementById('edit-item-original-category').value || currentCategory;
     
-    let itemData = { category: currentCategory };
+    // Get the selected category from the dropdown (if editing) or use currentCategory (if adding)
+    const selectedCategory = isNewItem ? currentCategory : (document.getElementById('edit-item-category')?.value || currentCategory);
+    const categoryChanged = !isNewItem && originalCategory !== selectedCategory;
+    
+    const docId = isNewItem ? crypto.randomUUID() : itemId;
+    const path = getCollectionPath(selectedCategory, appId);
+    
+    let itemData = { category: selectedCategory };
     let isValid = true;
     
-    // Collect data from dynamic fields
-    const fields = categoryFields[currentCategory];
+    // Collect data from dynamic fields (use selectedCategory, not currentCategory)
+    const fields = categoryFields[selectedCategory];
     fields.forEach(field => {
         const input = document.getElementById(`field-${field.id}`);
         if (input) {
@@ -316,8 +322,8 @@ async function saveItem() {
     
     if (!isValid) return;
 
-    // Collect admin status data
-    const wasSoldOut = inventory[currentCategory] && inventory[currentCategory][itemId] ? inventory[currentCategory][itemId].isSoldOut : false;
+    // Collect admin status data (check original category for existing item)
+    const wasSoldOut = inventory[originalCategory] && inventory[originalCategory][itemId] ? inventory[originalCategory][itemId].isSoldOut : false;
     itemData.isFeatured = document.getElementById('isFeatured').checked;
     itemData.isOnSale = document.getElementById('isOnSale').checked;
     itemData.isLowStock = document.getElementById('isLowStock').checked;
@@ -334,7 +340,7 @@ async function saveItem() {
         itemData.soldOutAt = null;
     } else if (itemData.isSoldOut && wasSoldOut) {
         // Item remains sold out - preserve existing timestamp
-        const existingItem = inventory[currentCategory] && inventory[currentCategory][itemId];
+        const existingItem = inventory[originalCategory] && inventory[originalCategory][itemId];
         if (existingItem && existingItem.soldOutAt) {
             itemData.soldOutAt = existingItem.soldOutAt;
         } else {
@@ -349,18 +355,35 @@ async function saveItem() {
         itemData.updatedAt = now;
     } else {
         itemData.updatedAt = now;
-        // Preserve createdAt if it exists
-        if (inventory[currentCategory] && inventory[currentCategory][itemId] && inventory[currentCategory][itemId].createdAt) {
-            itemData.createdAt = inventory[currentCategory][itemId].createdAt;
+        // Preserve createdAt if it exists (check original category)
+        if (inventory[originalCategory] && inventory[originalCategory][itemId] && inventory[originalCategory][itemId].createdAt) {
+            itemData.createdAt = inventory[originalCategory][itemId].createdAt;
         } else {
             itemData.createdAt = now; // Fallback if missing
         }
     }
     
     try {
+        // If category changed, delete from old category and create in new category
+        if (categoryChanged) {
+            const oldPath = getCollectionPath(originalCategory, appId);
+            const oldDocRef = window.doc(window.db, oldPath, itemId);
+            await window.deleteDoc(oldDocRef);
+            console.log(`Item moved from ${originalCategory} to ${selectedCategory}`);
+        }
+        
+        // Save to new category (or same category if unchanged)
         const docRef = window.doc(window.db, path, docId);
         await window.setDoc(docRef, itemData);
-        showMessage(isNewItem ? 'Item added successfully!' : 'Item updated successfully!');
+        
+        if (categoryChanged) {
+            showMessage(`Item moved from ${originalCategory} to ${selectedCategory} successfully!`);
+            // Switch to the new category view
+            changeCategory(selectedCategory);
+        } else {
+            showMessage(isNewItem ? 'Item added successfully!' : 'Item updated successfully!');
+        }
+        
         hideAdminModal();
     } catch (e) {
         console.error("Error saving item:", e);
@@ -649,8 +672,21 @@ function openAdminModal(item = null) {
     modalTitle.textContent = isNewItem ? `Add New ${currentCategory}` : `Edit ${item.name}`;
     
     document.getElementById('edit-item-id').value = isNewItem ? '' : item.id;
+    document.getElementById('edit-item-original-category').value = isNewItem ? currentCategory : item.category;
     
+    // Add category selector at the top of the form (only for editing, not for new items)
     let html = '';
+    if (!isNewItem) {
+        const categoriesToShow = allCategories.filter(cat => cat !== 'All Products' && cat !== 'Specials');
+        html += `<div class="mb-4 p-3 bg-sage/10 rounded-xl border border-sage/30">
+            <label for="edit-item-category" class="block text-sm font-bold text-forest mb-2">Category *</label>
+            <select id="edit-item-category" onchange="handleCategoryChange(this.value)" class="w-full p-2 border-2 border-sage/50 rounded-xl bg-white text-forest focus:outline-none focus:ring-2 focus:ring-sage font-serif">
+                ${categoriesToShow.map(cat => `<option value="${cat}" ${(item.category || currentCategory) === cat ? 'selected' : ''}>${cat}</option>`).join('')}
+            </select>
+            <p class="text-xs text-sage mt-1">Changing category will update the form fields below.</p>
+        </div>`;
+    }
+    
     const fields = categoryFields[currentCategory];
     
     fields.forEach(field => {
@@ -689,6 +725,65 @@ function openAdminModal(item = null) {
     document.getElementById('staffNotes').value = isNewItem ? '' : (item.staffNotes || '');
 
     document.getElementById('admin-modal').style.display = 'flex';
+}
+
+/**
+ * Handle category change in edit modal
+ * Updates form fields dynamically when category is changed
+ */
+function handleCategoryChange(newCategory) {
+    const itemId = document.getElementById('edit-item-id').value;
+    if (!itemId) return; // Only works when editing, not adding
+    
+    const originalCategory = document.getElementById('edit-item-original-category').value;
+    const item = inventory[originalCategory] ? inventory[originalCategory][itemId] : null;
+    if (!item) return;
+    
+    // Update currentCategory to the new category
+    currentCategory = newCategory;
+    
+    // Regenerate form fields for the new category
+    const formFields = document.getElementById('admin-form-fields');
+    const categorySelector = formFields.querySelector('#edit-item-category');
+    const categorySelectorHtml = categorySelector ? categorySelector.outerHTML : '';
+    
+    let html = categorySelectorHtml;
+    const fields = categoryFields[newCategory];
+    
+    fields.forEach(field => {
+        // Don't render admin-only staffNotes in the main form loop
+        if (field.adminOnly && field.id === 'staffNotes') return;
+
+        // Get value from existing item, or empty if field doesn't exist in old category
+        const value = item[field.id] || '';
+        const required = field.required ? 'required' : '';
+        
+        html += `<div><label for="field-${field.id}" class="block text-sm font-bold text-forest mb-1">${field.label} ${field.required ? '<span class="text-red_sale">*</span>' : ''}</label>`;
+        
+        const commonClasses = "w-full p-2 border-2 border-sage/50 rounded-xl bg-white text-forest focus:outline-none focus:ring-2 focus:ring-sage font-serif";
+
+        if (field.type === 'textarea') {
+            html += `<textarea id="field-${field.id}" rows="3" class="${commonClasses}" placeholder="${field.placeholder || ''}">${value}</textarea>`;
+        } else if (field.type === 'select') {
+            html += `<select id="field-${field.id}" class="${commonClasses}" ${required}>`;
+            html += `<option value="">Select ${field.label}</option>`;
+            (field.options || []).forEach(opt => {
+                html += `<option value="${opt}" ${value === opt ? 'selected' : ''}>${opt}</option>`;
+            });
+            html += `</select>`;
+        } else {
+            html += `<input type="text" id="field-${field.id}" value="${value}" class="${commonClasses}" placeholder="${field.placeholder || ''}" ${required}>`;
+        }
+        html += `</div>`;
+    });
+    
+    formFields.innerHTML = html;
+    
+    // Update the category selector's onchange handler
+    const newCategorySelector = document.getElementById('edit-item-category');
+    if (newCategorySelector) {
+        newCategorySelector.onchange = function() { handleCategoryChange(this.value); };
+    }
 }
 
 function handleAddItemClick() {
@@ -2236,6 +2331,7 @@ window.hideAdminModal = hideAdminModal;
 window.hideCategorySelectModal = hideCategorySelectModal;
 window.showCategorySelectModal = showCategorySelectModal;
 window.selectCategoryForAdd = selectCategoryForAdd;
+window.handleCategoryChange = handleCategoryChange;
 window.saveItem = saveItem;
 window.openSettingsModal = openSettingsModal;
 window.closeSettingsModal = closeSettingsModal;
